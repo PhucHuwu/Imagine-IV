@@ -2,6 +2,7 @@
 Browser Manager - Undetected ChromeDriver with Chrome profile management
 """
 import os
+import threading
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -10,6 +11,10 @@ import undetected_chromedriver as uc
 from .config import get_config
 from .logger import get_logger
 from .process_cleaner import get_cleaner
+
+
+# Lock to prevent race condition when initializing Chrome driver
+_driver_lock = threading.Lock()
 
 
 class BrowserManager:
@@ -33,66 +38,54 @@ class BrowserManager:
         if profiles_dir is None:
             profiles_dir = Path("./profiles")
         
-        profile_path = profiles_dir / f"thread_{self.thread_id}"
+        profile_path = profiles_dir / f"Profile_{self.thread_id}"
         profile_path.mkdir(parents=True, exist_ok=True)
         
         return profile_path
-    
-    def _get_window_size(self) -> Tuple[int, int]:
-        """Get window size (1/6 of screen)."""
-        try:
-            import screeninfo
-            monitors = screeninfo.get_monitors()
-            primary = monitors[0]
-            
-            # 1/6 of screen = roughly 3 columns x 2 rows
-            width = primary.width // 3
-            height = primary.height // 2
-            
-            return (width, height)
-            
-        except Exception:
-            # Fallback to reasonable size
-            return (640, 360)
-    
-    def _get_window_position(self) -> Tuple[int, int]:
-        """Get window position based on thread_id (staggered)."""
-        try:
-            import screeninfo
-            monitors = screeninfo.get_monitors()
-            primary = monitors[0]
-            
-            # Calculate offset based on thread_id (stagger windows)
-            offset = (self.thread_id - 1) * 30  # 30px offset per thread
-            
-            # Stay in top-left area
-            x = offset % (primary.width // 2)
-            y = offset % (primary.height // 2)
-            
-            return (x, y)
-            
-        except ImportError:
-            self.logger.warning("screeninfo chưa cài, sử dụng vị trí mặc định")
-            return (0, 0)
-        except Exception as e:
-            self.logger.warning(f"Không lấy được thông tin màn hình: {e}")
-            return (0, 0)
     
     def _get_chrome_options(self) -> uc.ChromeOptions:
         """Configure Chrome options for undetected-chromedriver."""
         options = uc.ChromeOptions()
         
-        # Disable notifications
+        # Disable password manager
+        options.add_argument("--password-store=basic")
+        options.add_argument("--disable-popup-blocking")
         options.add_argument("--disable-notifications")
         
-        # Disable infobars
-        options.add_argument("--disable-infobars")
-        
-        # Get window size (1/6 of screen)
-        width, height = self._get_window_size()
-        options.add_argument(f"--window-size={width},{height}")
+        options.add_experimental_option(
+            "prefs",
+            {
+                "credentials_enable_service": False,
+                "profile.password_manager_enabled": False,
+            },
+        )
         
         return options
+    
+    def _setup_window(self):
+        """Setup window size and position after driver started."""
+        if not self.driver:
+            return
+        
+        try:
+            # Get screen size via JavaScript
+            screen_width = self.driver.execute_script("return window.screen.availWidth;")
+            screen_height = self.driver.execute_script("return window.screen.availHeight;")
+            
+            # Window size = 1/6 of screen (3 columns x 2 rows)
+            window_width = screen_width // 3
+            window_height = screen_height // 2
+            
+            # Position: stagger each thread by offset
+            offset = (self.thread_id - 1) * 30
+            position_x = offset % (screen_width // 2)
+            position_y = offset % (screen_height // 2)
+            
+            self.driver.set_window_size(window_width, window_height)
+            self.driver.set_window_position(position_x, position_y)
+            
+        except Exception as e:
+            self.logger.warning(f"Không thể set kích thước cửa sổ: {e}")
     
     def start(self) -> bool:
         """
@@ -107,15 +100,17 @@ class BrowserManager:
             # Get Chrome options
             options = self._get_chrome_options()
             
-            # Get profile path
+            # Get profile path and set via options
             profile_path = self._get_profile_path()
+            options.user_data_dir = str(profile_path)
             
-            # Create undetected Chrome driver
-            self.driver = uc.Chrome(
-                options=options,
-                user_data_dir=str(profile_path),
-                use_subprocess=True
-            )
+            # Use lock to prevent race condition when initializing driver
+            with _driver_lock:
+                try:
+                    self.driver = uc.Chrome(options=options)
+                except Exception as e:
+                    self.logger.error(f"Lỗi khởi tạo Chrome: {e}")
+                    return False
             
             # Save PID for cleanup
             if hasattr(self.driver, 'browser_pid'):
@@ -125,9 +120,8 @@ class BrowserManager:
             else:
                 self.logger.success("Chrome đã khởi động")
             
-            # Set window position
-            x, y = self._get_window_position()
-            self.driver.set_window_position(x, y)
+            # Setup window size and position
+            self._setup_window()
             
             return True
             
@@ -175,3 +169,11 @@ class BrowserManager:
             return True
         except Exception:
             return False
+    
+    def set_zoom(self, zoom_percent: int = 100):
+        """Set page zoom level."""
+        if self.driver:
+            try:
+                self.driver.execute_script(f"document.body.style.zoom='{zoom_percent}%'")
+            except Exception:
+                pass

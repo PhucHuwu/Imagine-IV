@@ -160,6 +160,11 @@ class MainWindow:
         self.logger.info(f"Đang bắt đầu tạo {mode} với cài đặt: {settings}")
         self._status_label.configure(text=f"Đang tạo {mode}...")
         
+        # Zoom browser to 25% if open
+        if hasattr(self, '_login_browser') and self._login_browser and self._login_browser.is_running():
+            self._login_browser.set_zoom(25)
+            self.logger.info("Đã zoom trình duyệt xuống 25%")
+        
         # TODO: Implement actual generation logic
         # This will be connected to thread_manager and grok_automation
     
