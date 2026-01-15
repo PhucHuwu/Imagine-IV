@@ -57,7 +57,7 @@ class GrokAutomation:
             True if successful
         """
         if not self.driver:
-            self.logger.error("Trinh duyet chua khoi dong")
+            self.logger.error("Trình duyệt chưa khởi động")
             return False
         
         try:
@@ -82,14 +82,14 @@ class GrokAutomation:
                 editor.dispatchEvent(event);
             """, editor, prompt)
             
-            self.logger.info("Da nhap prompt thanh cong")
+            self.logger.info("Đã nhập prompt thành công")
             return True
             
         except TimeoutException:
-            self.logger.error("Het thoi gian cho o nhap lieu")
+            self.logger.error("Hết thời gian chờ ô nhập liệu")
             return False
         except Exception as e:
-            self.logger.error(f"Khong the nhap prompt: {e}")
+            self.logger.error(f"Không thể nhập prompt: {e}")
             return False
     
     def submit_prompt(self) -> bool:
@@ -104,14 +104,14 @@ class GrokAutomation:
             
             submit_btn.click()
             
-            self.logger.info("Da gui prompt")
+            self.logger.info("Đã gửi prompt")
             return True
             
         except TimeoutException:
-            self.logger.error("Het thoi gian cho nut gui")
+            self.logger.error("Hết thời gian chờ nút gửi")
             return False
         except Exception as e:
-            self.logger.error(f"Khong the gui prompt: {e}")
+            self.logger.error(f"Không thể gửi prompt: {e}")
             return False
     
     def wait_for_images(self, timeout: int = None, min_count: int = 1) -> bool:
@@ -128,7 +128,7 @@ class GrokAutomation:
         if timeout is None:
             timeout = self.config.get("timeout_seconds", 120)
         
-        self.logger.info(f"Dang cho anh (timeout: {timeout}s)...")
+        self.logger.info(f"Đang chờ ảnh (timeout: {timeout}s)...")
         
         start_time = time.time()
         
@@ -140,7 +140,6 @@ class GrokAutomation:
                 valid_images = []
                 for img in images:
                     src = img.get_attribute("src") or ""
-                    width = img.get_attribute("width") or "0"
                     
                     # Check if it's a real generated image (not thumbnail)
                     if "imagine-public" in src and "_thumbnail" not in src:
@@ -149,7 +148,7 @@ class GrokAutomation:
                 if len(valid_images) >= min_count:
                     # Wait a bit more for images to fully load
                     time.sleep(2)
-                    self.logger.success(f"Tim thay {len(valid_images)} anh")
+                    self.logger.success(f"Tìm thấy {len(valid_images)} ảnh")
                     return True
                     
             except Exception:
@@ -157,7 +156,7 @@ class GrokAutomation:
             
             time.sleep(1)
         
-        self.logger.error("Het thoi gian cho anh")
+        self.logger.error("Hết thời gian chờ ảnh")
         return False
     
     def get_image_urls(self, count: int = 4) -> List[str]:
@@ -182,11 +181,11 @@ class GrokAutomation:
                         if len(urls) >= count:
                             break
             
-            self.logger.info(f"Tim thay {len(urls)} anh")
+            self.logger.info(f"Tìm thấy {len(urls)} ảnh")
             return urls
             
         except Exception as e:
-            self.logger.error(f"Khong the lay URL anh: {e}")
+            self.logger.error(f"Không thể lấy URL ảnh: {e}")
             return []
     
     def download_images(self, urls: List[str], output_dir: str) -> List[str]:
@@ -218,12 +217,12 @@ class GrokAutomation:
                         f.write(response.content)
                     
                     saved_files.append(str(filepath))
-                    self.logger.info(f"Da tai: {filename}")
+                    self.logger.info(f"Đã tải: {filename}")
                 else:
-                    self.logger.error(f"Khong the tai anh {idx}: HTTP {response.status_code}")
+                    self.logger.error(f"Không thể tải ảnh {idx}: HTTP {response.status_code}")
                     
             except Exception as e:
-                self.logger.error(f"Khong the tai anh {idx}: {e}")
+                self.logger.error(f"Không thể tải ảnh {idx}: {e}")
         
         return saved_files
     
@@ -240,7 +239,7 @@ class GrokAutomation:
         if timeout is None:
             timeout = self.config.get("timeout_seconds", 180)  # Videos take longer
         
-        self.logger.info(f"Dang cho video (timeout: {timeout}s)...")
+        self.logger.info(f"Đang chờ video (timeout: {timeout}s)...")
         
         start_time = time.time()
         
@@ -252,7 +251,7 @@ class GrokAutomation:
                     src = video.get_attribute("src") or ""
                     if "imagine-public" in src and ".mp4" in src:
                         time.sleep(2)
-                        self.logger.success("Video da san sang")
+                        self.logger.success("Video đã sẵn sàng")
                         return True
                         
             except Exception:
@@ -260,7 +259,7 @@ class GrokAutomation:
             
             time.sleep(2)
         
-        self.logger.error("Het thoi gian cho video")
+        self.logger.error("Hết thời gian chờ video")
         return False
     
     def get_video_url(self) -> Optional[str]:
@@ -273,11 +272,11 @@ class GrokAutomation:
                 if src and "imagine-public" in src and ".mp4" in src:
                     return src
             
-            self.logger.error("Khong tim thay URL video")
+            self.logger.error("Không tìm thấy URL video")
             return None
             
         except Exception as e:
-            self.logger.error(f"Khong the lay URL video: {e}")
+            self.logger.error(f"Không thể lấy URL video: {e}")
             return None
     
     def download_video(self, url: str, output_path: str) -> bool:
@@ -292,7 +291,7 @@ class GrokAutomation:
             True if successful
         """
         try:
-            self.logger.info("Dang tai video...")
+            self.logger.info("Đang tải video...")
             
             response = requests.get(url, timeout=180, stream=True)
             
@@ -301,14 +300,14 @@ class GrokAutomation:
                     for chunk in response.iter_content(chunk_size=8192):
                         f.write(chunk)
                 
-                self.logger.success(f"Da luu video: {output_path}")
+                self.logger.success(f"Đã lưu video: {output_path}")
                 return True
             else:
-                self.logger.error(f"Khong the tai video: HTTP {response.status_code}")
+                self.logger.error(f"Không thể tải video: HTTP {response.status_code}")
                 return False
                 
         except Exception as e:
-            self.logger.error(f"Khong the tai video: {e}")
+            self.logger.error(f"Không thể tải video: {e}")
             return False
     
     def refresh_driver(self):

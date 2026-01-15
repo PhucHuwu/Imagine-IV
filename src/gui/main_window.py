@@ -157,13 +157,13 @@ class MainWindow:
     
     def _on_start(self, mode: str, settings: dict):
         """Handle start button from tabs."""
-        self.logger.info(f"Dang bat dau tao {mode} voi cai dat: {settings}")
-        self._status_label.configure(text=f"Dang tao {mode}...")
+        self.logger.info(f"Đang bắt đầu tạo {mode} với cài đặt: {settings}")
+        self._status_label.configure(text=f"Đang tạo {mode}...")
         
         # Check if browser is open
         if not (hasattr(self, '_login_browser') and self._login_browser and self._login_browser.is_running()):
-            self.logger.error("Trinh duyet chua mo. Hay nhan 'Mo Trinh Duyet De Dang Nhap' truoc!")
-            self._status_label.configure(text="Loi: Chua mo trinh duyet")
+            self.logger.error("Trình duyệt chưa mở. Hãy nhấn 'Mở Trình Duyệt Để Đăng Nhập' trước!")
+            self._status_label.configure(text="Lỗi: Chưa mở trình duyệt")
             return
         
         # Navigate to Grok Imagine
@@ -171,7 +171,7 @@ class MainWindow:
         
         # Zoom browser to 25%
         self._login_browser.set_zoom(25)
-        self.logger.info("Da zoom trinh duyet xuong 25%")
+        self.logger.info("Đã zoom trình duyệt xuống 25%")
         
         if mode == "anh":
             self._start_image_generation(settings)
@@ -184,7 +184,7 @@ class MainWindow:
         
         # Stop existing generator if running
         if hasattr(self, '_image_generator') and self._image_generator and self._image_generator.is_running():
-            self.logger.warning("Dang chay, dung truoc...")
+            self.logger.warning("Đang chạy, dừng trước...")
             self._image_generator.stop()
             return
         
@@ -202,7 +202,7 @@ class MainWindow:
     def _start_video_generation(self, settings: dict):
         """Start video generation workflow."""
         # TODO: Implement video generation
-        self.logger.info("Video generation chua duoc implement")
+        self.logger.info("Video generation chưa được implement")
     
     def _on_generation_progress(self, current: int, total: int, status: str):
         """Handle progress updates from generator."""
@@ -220,14 +220,14 @@ class MainWindow:
     
     def _on_stop(self):
         """Handle stop button."""
-        self.logger.info("Dang dung...")
-        self._status_label.configure(text="Dang dung...")
+        self.logger.info("Đang dừng...")
+        self._status_label.configure(text="Đang dừng...")
         
         # Stop image generator if running
         if hasattr(self, '_image_generator') and self._image_generator and self._image_generator.is_running():
             self._image_generator.stop()
         
-        self._status_label.configure(text="Da dung")
+        self._status_label.configure(text="Đã dừng")
     
     def _on_login_click(self):
         """Handle login button click - Open browser without navigating."""
