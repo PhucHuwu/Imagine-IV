@@ -169,9 +169,9 @@ class MainWindow:
         # Navigate to Grok Imagine
         self._login_browser.navigate("https://grok.com/imagine")
         
-        # Zoom browser to 50%
-        self._login_browser.set_zoom(50)
-        self.logger.info("Đã zoom trình duyệt xuống 50%")
+        # Zoom browser to 75%
+        self._login_browser.set_zoom(75)
+        self.logger.info("Đã zoom trình duyệt xuống 75%")
         
         if mode == "anh":
             self._start_image_generation(settings)

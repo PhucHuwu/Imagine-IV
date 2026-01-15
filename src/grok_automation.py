@@ -115,13 +115,20 @@ class GrokAutomation:
             return False
     
     def count_current_images(self) -> int:
-        """Count current valid images on page."""
+        """Count current valid images on page (including Base64 JPEGs which are completed images)."""
         try:
-            images = self.driver.find_elements(By.CSS_SELECTOR, self.GENERATED_IMAGE)
+            # Find all images that might be generated results
+            images = self.driver.find_elements(By.CSS_SELECTOR, "div[role='listitem'] img")
             count = 0
             for img in images:
                 src = img.get_attribute("src") or ""
-                if "imagine-public" in src and "_thumbnail" not in src:
+                # Valid images are either standard URLs containing 'imagine-public' (excluding thumbnails)
+                # OR Base64 JPEGs (which user confirmed are "done" images)
+                # We specifically exclude PNGs as those are placeholders
+                is_valid_url = "imagine-public" in src and "_thumbnail" not in src
+                is_valid_base64 = src.startswith("data:image/jpeg")
+                
+                if is_valid_url or is_valid_base64:
                     count += 1
             return count
         except Exception:
@@ -137,9 +144,21 @@ class GrokAutomation:
         except Exception:
             return False
     
+    def has_invisible_elements(self) -> bool:
+        """Check if there are elements with class 'invisible' (generating placeholders)."""
+        try:
+            # Check for any element with class 'invisible' inside the masonry container
+            elements = self.driver.find_elements(By.CSS_SELECTOR, ".invisible")
+            return len(elements) > 0
+        except Exception:
+            return False
+
     def wait_for_generation_complete(self, initial_count: int = 0, timeout: int = None) -> bool:
         """
-        Smart polling: wait for generation to complete.
+        Smart polling: wait for generation to complete using multiple signals:
+        1. Submit button state (is_generating)
+        2. Presence of .invisible placeholders
+        3. JPEG image count increase
         
         Args:
             initial_count: Number of images before submitting prompt
@@ -149,37 +168,88 @@ class GrokAutomation:
             True if new images are generated
         """
         if timeout is None:
-            timeout = self.config.get("timeout_seconds", 120)
+            timeout = self.config.get("timeout_seconds", 60)
         
         self.logger.info(f"Đang chờ tạo ảnh (ảnh hiện tại: {initial_count})...")
         
         start_time = time.time()
         was_generating = False
+        invisible_seen = False
+        
+        # Helper to generate filename
+        def get_timestamp_filename(idx):
+            timestamp = datetime.now().strftime("%d-%m_%H-%M-%S")
+            return f"{timestamp}_{idx:03d}.jpg"
+
+        # Track processed images to prevent duplicates
+        processed_srcs = set()
+        output_dir = Path(self.config.get("images_dir", "./images"))
+        output_dir.mkdir(parents=True, exist_ok=True)
         
         while time.time() - start_time < timeout:
             try:
                 is_gen = self.is_generating()
+                has_invisible = self.has_invisible_elements()
+                has_placeholders = self.has_generating_placeholders()
                 
-                # Track if generation started
-                if is_gen:
+                # Incremental Download Logic
+                valid_images = self.driver.find_elements(By.CSS_SELECTOR, "div[role='listitem'] img")
+                current_count = 0
+                
+                for img in valid_images:
+                    src = img.get_attribute("src") or ""
+                    
+                    # Logic identifying COMPLETED images (same as count_current_images)
+                    is_valid_url = "imagine-public" in src and "_thumbnail" not in src
+                    is_valid_base64 = src.startswith("data:image/jpeg")
+                    
+                    if is_valid_url or is_valid_base64:
+                        current_count += 1
+                        
+                        # Use a hash or just the src content (if short enough) as key. 
+                        # Base64 can be long, but safe enough for checking unique strings in memory for one session.
+                        # For URLs, it's short.
+                        if src not in processed_srcs:
+                            self.logger.info(f"Phát hiện ảnh mới, đang tải xuống... ({current_count})")
+                            try:
+                                if is_valid_base64:
+                                    # Handle Base64
+                                    self._save_base64_image(src, output_dir, get_timestamp_filename(len(processed_srcs) + 1))
+                                else:
+                                    # Handle URL
+                                    self._download_single_image(src, output_dir, get_timestamp_filename(len(processed_srcs) + 1))
+                                
+                                processed_srcs.add(src)
+                                self.logger.success(f"Đã tải ảnh {len(processed_srcs)}")
+                            except Exception as dl_err:
+                                self.logger.error(f"Lỗi tải ảnh: {dl_err}")
+
+                # Debug status every 5 seconds
+                if int(time.time() - start_time) % 5 == 0:
+                    self.logger.debug(f"Status: Gen={is_gen}, Invis={has_invisible}, Placeholders={has_placeholders}, Count={current_count}/{initial_count} (Downloaded: {len(processed_srcs)})")
+
+                # Track states: considered generating if button disabled OR invisible items OR placeholder items
+                if is_gen or has_invisible or has_placeholders:
                     if not was_generating:
-                        self.logger.info("Bắt đầu tạo ảnh...")
+                        self.logger.info("Phát hiện đang tạo ảnh...")
                     was_generating = True
                 
-                # Check if generation finished (was generating, now not)
-                if was_generating and not is_gen:
-                    # Wait a moment for images to fully render
-                    time.sleep(1)
-                    
-                    # Count new images
-                    new_count = self.count_current_images()
-                    if new_count > initial_count:
-                        self.logger.success(f"Hoàn thành! Số ảnh mới: {new_count - initial_count}")
-                        return True
+                if has_invisible:
+                    invisible_seen = True
+
+                # Completion logic:
+                if was_generating and not is_gen and not has_invisible and not has_placeholders:
+                    if current_count > initial_count:
+                        # Double check stabilization
+                        time.sleep(2)
+                        final_count = self.count_current_images()
+                        # Final check to ensure no regression
+                        if final_count > initial_count and not self.has_invisible_elements() and not self.has_generating_placeholders():
+                            self.logger.success(f"Hoàn thành! Tổng số ảnh mới đã tải: {len(processed_srcs)}")
+                            return True
                     else:
-                        # Generation finished but no new images - possibly error
-                        self.logger.warning("Tạo ảnh hoàn thành nhưng không có ảnh mới")
-                        return False
+                        # Waiting for images to load/appear
+                        pass
                 
             except Exception as e:
                 self.logger.debug(f"Lỗi khi kiểm tra: {e}")
@@ -188,6 +258,16 @@ class GrokAutomation:
         
         self.logger.error("Hết thời gian chờ tạo ảnh")
         return False
+
+    def has_generating_placeholders(self) -> bool:
+        """Check if there are generating placeholder images (Base64 PNGs) in the generation list."""
+        try:
+            # Check for images with data:image/png src inside list items
+            # These are typically the blurred/loading placeholders
+            elements = self.driver.find_elements(By.CSS_SELECTOR, "div[role='listitem'] img[src^='data:image/png']")
+            return len(elements) > 0
+        except Exception:
+            return False
     
     def wait_for_images(self, timeout: int = None, min_count: int = 1) -> bool:
         """
@@ -354,6 +434,38 @@ class GrokAutomation:
             self.logger.error(f"Không thể tải video: {e}")
             return False
     
+    def _save_base64_image(self, base64_data: str, output_dir: Path, filename: str) -> bool:
+        """Save Base64 image data to file."""
+        import base64
+        try:
+            # Remove header if present (e.g., "data:image/jpeg;base64,")
+            if "," in base64_data:
+                base64_data = base64_data.split(",")[1]
+            
+            image_data = base64.b64decode(base64_data)
+            filepath = output_dir / filename
+            
+            with open(filepath, "wb") as f:
+                f.write(image_data)
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to save Base64 image: {e}")
+            return False
+
+    def _download_single_image(self, url: str, output_dir: Path, filename: str) -> bool:
+        """Download a single image from URL."""
+        try:
+            response = requests.get(url, timeout=30)
+            if response.status_code == 200:
+                filepath = output_dir / filename
+                with open(filepath, 'wb') as f:
+                    f.write(response.content)
+                return True
+            return False
+        except Exception as e:
+            self.logger.error(f"Failed to download image {url}: {e}")
+            return False
+
     def refresh_driver(self):
         """Refresh driver reference after browser restart."""
         self.driver = self.browser.get_driver()

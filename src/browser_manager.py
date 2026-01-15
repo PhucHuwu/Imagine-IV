@@ -79,7 +79,7 @@ class BrowserManager:
             # Position: stagger each thread by offset
             offset = (self.thread_id - 1) * 30
             position_x = offset % (screen_width // 2)
-            position_y = offset % (screen_height // 2)
+            position_y = offset % (screen_height)
             
             self.driver.set_window_size(window_width, window_height)
             self.driver.set_window_position(position_x, position_y)
