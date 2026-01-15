@@ -205,7 +205,7 @@ Maintain the same style, lighting, and camera angle.
 ### Hiển thị cửa sổ Chrome
 
 -   Nếu nhiều màn hình: Đặt Chrome ở màn hình được chọn (trái/phải)
--   Nếu 1 màn hình: Zoom Chrome xuống **25%** và **thu nhỏ cửa sổ** để tiết kiệm diện tích
+-   Nếu 1 màn hình: Zoom Chrome xuống **50%** và **thu nhỏ cửa sổ** để tiết kiệm diện tích
 
 ### Trang Config
 
