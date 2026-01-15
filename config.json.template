@@ -1,0 +1,15 @@
+{
+    "thread_count": 1,
+    "images_per_download": 4,
+    "batch_size": 10,
+    "delay_ms": 1000,
+    "chrome_position": "left",
+    "images_dir": "./images/",
+    "videos_dir": "./videos/",
+    "profiles_dir": "./profiles/",
+    "openrouter_api_key": "",
+    "openrouter_model": "",
+    "timeout_seconds": 60,
+    "verbose_logging": true,
+    "logged_in": false
+}
