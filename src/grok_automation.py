@@ -114,50 +114,94 @@ class GrokAutomation:
             self.logger.error(f"Không thể gửi prompt: {e}")
             return False
     
-    def wait_for_images(self, timeout: int = None, min_count: int = 1) -> bool:
+    def count_current_images(self) -> int:
+        """Count current valid images on page."""
+        try:
+            images = self.driver.find_elements(By.CSS_SELECTOR, self.GENERATED_IMAGE)
+            count = 0
+            for img in images:
+                src = img.get_attribute("src") or ""
+                if "imagine-public" in src and "_thumbnail" not in src:
+                    count += 1
+            return count
+        except Exception:
+            return 0
+    
+    def is_generating(self) -> bool:
+        """Check if generation is in progress by checking submit button disabled state."""
+        try:
+            submit_btn = self.driver.find_element(By.CSS_SELECTOR, self.SUBMIT_BTN)
+            # Check if button has disabled attribute
+            is_disabled = submit_btn.get_attribute("disabled") is not None
+            return is_disabled
+        except Exception:
+            return False
+    
+    def wait_for_generation_complete(self, initial_count: int = 0, timeout: int = None) -> bool:
         """
-        Wait for images to be generated.
+        Smart polling: wait for generation to complete.
         
         Args:
+            initial_count: Number of images before submitting prompt
             timeout: Maximum wait time in seconds
-            min_count: Minimum number of images to wait for
             
         Returns:
-            True if images are ready
+            True if new images are generated
         """
         if timeout is None:
             timeout = self.config.get("timeout_seconds", 120)
         
-        self.logger.info(f"Đang chờ ảnh (timeout: {timeout}s)...")
+        self.logger.info(f"Đang chờ tạo ảnh (ảnh hiện tại: {initial_count})...")
         
         start_time = time.time()
+        was_generating = False
         
         while time.time() - start_time < timeout:
             try:
-                images = self.driver.find_elements(By.CSS_SELECTOR, self.GENERATED_IMAGE)
+                is_gen = self.is_generating()
                 
-                # Filter out thumbnails and small images
-                valid_images = []
-                for img in images:
-                    src = img.get_attribute("src") or ""
-                    
-                    # Check if it's a real generated image (not thumbnail)
-                    if "imagine-public" in src and "_thumbnail" not in src:
-                        valid_images.append(img)
+                # Track if generation started
+                if is_gen:
+                    if not was_generating:
+                        self.logger.info("Bắt đầu tạo ảnh...")
+                    was_generating = True
                 
-                if len(valid_images) >= min_count:
-                    # Wait a bit more for images to fully load
-                    time.sleep(2)
-                    self.logger.success(f"Tìm thấy {len(valid_images)} ảnh")
-                    return True
+                # Check if generation finished (was generating, now not)
+                if was_generating and not is_gen:
+                    # Wait a moment for images to fully render
+                    time.sleep(1)
                     
-            except Exception:
-                pass
+                    # Count new images
+                    new_count = self.count_current_images()
+                    if new_count > initial_count:
+                        self.logger.success(f"Hoàn thành! Số ảnh mới: {new_count - initial_count}")
+                        return True
+                    else:
+                        # Generation finished but no new images - possibly error
+                        self.logger.warning("Tạo ảnh hoàn thành nhưng không có ảnh mới")
+                        return False
+                
+            except Exception as e:
+                self.logger.debug(f"Lỗi khi kiểm tra: {e}")
             
             time.sleep(1)
         
-        self.logger.error("Hết thời gian chờ ảnh")
+        self.logger.error("Hết thời gian chờ tạo ảnh")
         return False
+    
+    def wait_for_images(self, timeout: int = None, min_count: int = 1) -> bool:
+        """
+        Wait for images to be generated (legacy method, uses smart polling internally).
+        
+        Args:
+            timeout: Maximum wait time in seconds
+            min_count: Minimum number of NEW images to wait for
+            
+        Returns:
+            True if images are ready
+        """
+        initial_count = self.count_current_images()
+        return self.wait_for_generation_complete(initial_count, timeout)
     
     def get_image_urls(self, count: int = 4) -> List[str]:
         """
