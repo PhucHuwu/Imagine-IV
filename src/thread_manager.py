@@ -55,10 +55,10 @@ class ThreadManager:
     def start(self):
         """Start the thread pool."""
         if self._running:
-            self.logger.warning("Thread manager already running")
+            self.logger.warning("Thread manager đang chạy rồi")
             return
         
-        self.logger.info(f"Starting thread manager with {self.max_workers} worker(s)")
+        self.logger.info(f"Đang khởi động thread manager với {self.max_workers} luồng")
         self._executor = ThreadPoolExecutor(
             max_workers=self.max_workers,
             thread_name_prefix="Thread"
@@ -79,7 +79,7 @@ class ThreadManager:
             Future object or None if not running
         """
         if not self._running or not self._executor:
-            self.logger.error("Thread manager not running")
+            self.logger.error("Thread manager chưa chạy")
             return None
         
         future = self._executor.submit(self._wrap_task, func, *args, **kwargs)
@@ -91,12 +91,12 @@ class ThreadManager:
         thread_name = threading.current_thread().name
         
         try:
-            self.logger.debug(f"Task started")
+            self.logger.debug(f"Task bắt đầu")
             result = func(*args, **kwargs)
-            self.logger.debug(f"Task completed")
+            self.logger.debug(f"Task hoàn thành")
             return result
         except Exception as e:
-            self.logger.error(f"Task failed: {e}")
+            self.logger.error(f"Task thất bại: {e}")
             raise
     
     def should_stop(self) -> bool:
@@ -105,7 +105,7 @@ class ThreadManager:
     
     def stop(self):
         """Signal all tasks to stop."""
-        self.logger.info("Stopping thread manager...")
+        self.logger.info("Đang dừng thread manager...")
         self._stop_event.set()
     
     def shutdown(self, wait: bool = True):
@@ -127,7 +127,7 @@ class ThreadManager:
         self._running = False
         self._futures.clear()
         
-        self.logger.info("Thread manager shutdown complete")
+        self.logger.info("Đã tắt thread manager")
     
     def wait_all(self, timeout: float = None) -> List[Any]:
         """
@@ -147,7 +147,7 @@ class ThreadManager:
                 results.append(result)
             except Exception as e:
                 results.append(None)
-                self.logger.error(f"Task exception: {e}")
+                self.logger.error(f"Task lỗi: {e}")
         
         return results
     
@@ -186,7 +186,7 @@ class WorkerThread(threading.Thread):
     
     def run(self):
         """Run the worker thread."""
-        self.logger.info(f"Worker started")
+        self.logger.info(f"Worker đã bắt đầu")
         
         while not self.stop_event.is_set():
             try:
@@ -200,14 +200,14 @@ class WorkerThread(threading.Thread):
                     task.completed = True
                 except Exception as e:
                     task.error = e
-                    self.logger.error(f"Task failed: {e}")
+                    self.logger.error(f"Task thất bại: {e}")
                 finally:
                     self.task_queue.task_done()
                     
             except queue.Empty:
                 continue
         
-        self.logger.info(f"Worker stopped")
+        self.logger.info(f"Worker đã dừng")
 
 
 # Global instance

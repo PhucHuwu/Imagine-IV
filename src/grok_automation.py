@@ -52,7 +52,7 @@ class GrokAutomation:
             True if successful
         """
         if not self.driver:
-            self.logger.error("Browser not started")
+            self.logger.error("Trình duyệt chưa khởi động")
             return False
         
         try:
@@ -67,14 +67,14 @@ class GrokAutomation:
             input_field.clear()
             input_field.send_keys(prompt)
             
-            self.logger.info("Prompt entered successfully")
+            self.logger.info("Đã nhập prompt thành công")
             return True
             
         except TimeoutException:
-            self.logger.error("Timeout waiting for input field")
+            self.logger.error("Hết thời gian chờ ô nhập liệu")
             return False
         except Exception as e:
-            self.logger.error(f"Failed to enter prompt: {e}")
+            self.logger.error(f"Không thể nhập prompt: {e}")
             return False
     
     def upload_image(self, image_path: str) -> bool:
@@ -90,7 +90,7 @@ class GrokAutomation:
         image_path = Path(image_path)
         
         if not image_path.exists():
-            self.logger.error(f"Image not found: {image_path}")
+            self.logger.error(f"Không tìm thấy ảnh: {image_path}")
             return False
         
         try:
@@ -98,15 +98,15 @@ class GrokAutomation:
             file_input = self.driver.find_element(By.CSS_SELECTOR, "input[type='file']")
             file_input.send_keys(str(image_path.absolute()))
             
-            self.logger.info(f"Image uploaded: {image_path.name}")
+            self.logger.info(f"Đã upload ảnh: {image_path.name}")
             time.sleep(1)  # Wait for upload
             return True
             
         except NoSuchElementException:
-            self.logger.error("File upload button not found")
+            self.logger.error("Không tìm thấy nút upload file")
             return False
         except Exception as e:
-            self.logger.error(f"Failed to upload image: {e}")
+            self.logger.error(f"Không thể upload ảnh: {e}")
             return False
     
     def select_video_mode(self) -> bool:
@@ -120,15 +120,15 @@ class GrokAutomation:
             
             if video_buttons:
                 video_buttons[0].click()
-                self.logger.info("Video mode selected")
+                self.logger.info("Đã chọn chế độ video")
                 time.sleep(0.5)
                 return True
             else:
-                self.logger.warning("Video mode button not found")
+                self.logger.warning("Không tìm thấy nút chế độ video")
                 return False
                 
         except Exception as e:
-            self.logger.error(f"Failed to select video mode: {e}")
+            self.logger.error(f"Không thể chọn chế độ video: {e}")
             return False
     
     def submit_prompt(self) -> bool:
@@ -138,11 +138,11 @@ class GrokAutomation:
             input_field = self.driver.find_element(By.CSS_SELECTOR, "textarea, input[type='text']")
             input_field.send_keys(Keys.RETURN)
             
-            self.logger.info("Prompt submitted")
+            self.logger.info("Đã gửi prompt")
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to submit prompt: {e}")
+            self.logger.error(f"Không thể gửi prompt: {e}")
             return False
     
     def wait_for_images(self, timeout: int = None) -> bool:
@@ -158,7 +158,7 @@ class GrokAutomation:
         if timeout is None:
             timeout = self.config.get("timeout_seconds", 60)
         
-        self.logger.info(f"Waiting for images (timeout: {timeout}s)...")
+        self.logger.info(f"Đang chờ ảnh (timeout: {timeout}s)...")
         
         try:
             # Wait for image elements to appear
@@ -169,11 +169,11 @@ class GrokAutomation:
             # Additional wait for all images to load
             time.sleep(2)
             
-            self.logger.success("Images ready")
+            self.logger.success("Ảnh đã sẵn sàng")
             return True
             
         except TimeoutException:
-            self.logger.error("Timeout waiting for images")
+            self.logger.error("Hết thời gian chờ ảnh")
             return False
     
     def wait_for_video(self, timeout: int = None) -> bool:
@@ -189,7 +189,7 @@ class GrokAutomation:
         if timeout is None:
             timeout = self.config.get("timeout_seconds", 120)  # Videos take longer
         
-        self.logger.info(f"Waiting for video (timeout: {timeout}s)...")
+        self.logger.info(f"Đang chờ video (timeout: {timeout}s)...")
         
         try:
             # Wait for video element or download button
@@ -202,11 +202,11 @@ class GrokAutomation:
             
             time.sleep(2)
             
-            self.logger.success("Video ready")
+            self.logger.success("Video đã sẵn sàng")
             return True
             
         except TimeoutException:
-            self.logger.error("Timeout waiting for video")
+            self.logger.error("Hết thời gian chờ video")
             return False
     
     def get_image_urls(self, count: int = 4) -> List[str]:
@@ -229,11 +229,11 @@ class GrokAutomation:
                 if src:
                     urls.append(src)
             
-            self.logger.info(f"Found {len(urls)} image(s)")
+            self.logger.info(f"Tìm thấy {len(urls)} ảnh")
             return urls
             
         except Exception as e:
-            self.logger.error(f"Failed to get image URLs: {e}")
+            self.logger.error(f"Không thể lấy URL ảnh: {e}")
             return []
     
     def download_images(self, urls: List[str], output_dir: str) -> List[str]:
@@ -265,12 +265,12 @@ class GrokAutomation:
                         f.write(response.content)
                     
                     saved_files.append(str(filepath))
-                    self.logger.info(f"Downloaded: {filename}")
+                    self.logger.info(f"Đã tải: {filename}")
                 else:
-                    self.logger.error(f"Failed to download image {idx}: HTTP {response.status_code}")
+                    self.logger.error(f"Không thể tải ảnh {idx}: HTTP {response.status_code}")
                     
             except Exception as e:
-                self.logger.error(f"Failed to download image {idx}: {e}")
+                self.logger.error(f"Không thể tải ảnh {idx}: {e}")
         
         return saved_files
     
@@ -284,14 +284,14 @@ class GrokAutomation:
             )
             video_btn.click()
             
-            self.logger.info("Clicked create video button")
+            self.logger.info("Đã nhấn nút tạo video")
             return True
             
         except NoSuchElementException:
-            self.logger.error("Create video button not found")
+            self.logger.error("Không tìm thấy nút tạo video")
             return False
         except Exception as e:
-            self.logger.error(f"Failed to click create video: {e}")
+            self.logger.error(f"Không thể nhấn tạo video: {e}")
             return False
     
     def get_video_url(self) -> Optional[str]:
@@ -308,10 +308,10 @@ class GrokAutomation:
             return link.get_attribute("href")
             
         except NoSuchElementException:
-            self.logger.error("Video URL not found")
+            self.logger.error("Không tìm thấy URL video")
             return None
         except Exception as e:
-            self.logger.error(f"Failed to get video URL: {e}")
+            self.logger.error(f"Không thể lấy URL video: {e}")
             return None
     
     def download_video(self, url: str, output_path: str) -> bool:
@@ -326,7 +326,7 @@ class GrokAutomation:
             True if successful
         """
         try:
-            self.logger.info(f"Downloading video...")
+            self.logger.info(f"Đang tải video...")
             
             response = requests.get(url, timeout=120, stream=True)
             
@@ -335,12 +335,12 @@ class GrokAutomation:
                     for chunk in response.iter_content(chunk_size=8192):
                         f.write(chunk)
                 
-                self.logger.success(f"Video saved: {output_path}")
+                self.logger.success(f"Đã lưu video: {output_path}")
                 return True
             else:
-                self.logger.error(f"Failed to download video: HTTP {response.status_code}")
+                self.logger.error(f"Không thể tải video: HTTP {response.status_code}")
                 return False
                 
         except Exception as e:
-            self.logger.error(f"Failed to download video: {e}")
+            self.logger.error(f"Không thể tải video: {e}")
             return False

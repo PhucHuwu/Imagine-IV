@@ -83,14 +83,14 @@ class PromptGenerator:
         model = self._get_model()
         
         if not api_key:
-            self.logger.error("OpenRouter API key not configured")
+            self.logger.error("Chưa cấu hình OpenRouter API key")
             return None
         
         if not model:
-            self.logger.error("OpenRouter model not configured")
+            self.logger.error("Chưa cấu hình OpenRouter model")
             return None
         
-        self.logger.info(f"Generating prompts using model: {model}")
+        self.logger.info(f"Đang tạo prompt với model: {model}")
         
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -116,8 +116,8 @@ class PromptGenerator:
             )
             
             if response.status_code != 200:
-                self.logger.error(f"OpenRouter API error: {response.status_code}")
-                self.logger.error(f"Response: {response.text}")
+                self.logger.error(f"OpenRouter API lỗi: {response.status_code}")
+                self.logger.error(f"Phản hồi: {response.text}")
                 return None
             
             data = response.json()
@@ -127,16 +127,16 @@ class PromptGenerator:
             prompts = self._parse_json_response(content)
             
             if prompts:
-                self.logger.success("Prompts generated successfully")
+                self.logger.success("Đã tạo prompt thành công")
                 self.logger.info(f"Image prompt: {prompts.get('image_prompt', '')[:100]}...")
             
             return prompts
             
         except requests.RequestException as e:
-            self.logger.error(f"Request failed: {e}")
+            self.logger.error(f"Yêu cầu thất bại: {e}")
             return None
         except (json.JSONDecodeError, KeyError) as e:
-            self.logger.error(f"Failed to parse response: {e}")
+            self.logger.error(f"Không thể parse phản hồi: {e}")
             return None
     
     def _parse_json_response(self, content: str) -> Optional[Dict[str, str]]:
@@ -162,11 +162,11 @@ class PromptGenerator:
             if all(key in prompts for key in required_keys):
                 return prompts
             else:
-                self.logger.error("Missing required keys in response")
+                self.logger.error("Thiếu key bắt buộc trong phản hồi")
                 return None
                 
         except json.JSONDecodeError as e:
-            self.logger.error(f"Invalid JSON in response: {e}")
+            self.logger.error(f"JSON không hợp lệ: {e}")
             self.logger.debug(f"Content: {content[:500]}")
             return None
 

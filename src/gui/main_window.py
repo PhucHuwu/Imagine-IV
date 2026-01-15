@@ -157,36 +157,42 @@ class MainWindow:
     
     def _on_start(self, mode: str, settings: dict):
         """Handle start button from tabs."""
-        self.logger.info(f"Starting {mode} generation with settings: {settings}")
-        self._status_label.configure(text=f"Running {mode} generation...")
+        self.logger.info(f"Đang bắt đầu tạo {mode} với cài đặt: {settings}")
+        self._status_label.configure(text=f"Đang tạo {mode}...")
         
         # TODO: Implement actual generation logic
         # This will be connected to thread_manager and grok_automation
     
     def _on_stop(self):
         """Handle stop button."""
-        self.logger.info("Stopping...")
-        self._status_label.configure(text="Stopping...")
+        self.logger.info("Đang dừng...")
+        self._status_label.configure(text="Đang dừng...")
         
         # TODO: Stop running tasks
     
     def _on_login_click(self):
-        """Handle login button click."""
+        """Handle login button click - Open browser without navigating."""
         from ..browser_manager import BrowserManager
         
-        self.logger.info("Opening browser for login...")
+        self.logger.info("Đang mở trình duyệt...")
         
-        # Create browser and navigate to Grok
-        browser = BrowserManager(thread_id=1)
-        if browser.start():
-            browser.navigate("https://grok.x.ai")
-            self.logger.info("Please login to Grok manually, then click 'Confirm Logged In'")
+        # Store browser instance for later use
+        self._login_browser = BrowserManager(thread_id=1)
+        if self._login_browser.start():
+            self.logger.info("Trình duyệt đã mở. Hãy đăng nhập Grok thủ công.")
+            self.logger.info("Sau khi đăng nhập xong, nhấn 'Xác Nhận Đã Đăng Nhập'")
     
     def _on_confirm_login(self):
-        """Handle confirm login button."""
+        """Handle confirm login button - Navigate to Grok Imagine."""
         self.config.set("logged_in", True)
         self._logged_in_var.set(True)
-        self.logger.success("Login confirmed!")
+        
+        # Navigate to Grok Imagine after login confirmed
+        if hasattr(self, '_login_browser') and self._login_browser and self._login_browser.is_running():
+            self._login_browser.navigate("https://grok.com/imagine")
+            self.logger.success("Đã xác nhận đăng nhập! Đang chuyển đến Grok Imagine...")
+        else:
+            self.logger.success("Đã xác nhận đăng nhập!")
     
     def _on_login_toggle(self):
         """Handle login checkbox toggle."""
@@ -194,7 +200,7 @@ class MainWindow:
     
     def _on_close(self):
         """Handle window close."""
-        self.logger.info("Shutting down...")
+        self.logger.info("Đang tắt ứng dụng...")
         
         # Cleanup
         get_cleaner().cleanup_on_exit()

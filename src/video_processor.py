@@ -26,13 +26,13 @@ class VideoProcessor:
                 text=True
             )
             if result.returncode == 0:
-                self.logger.info("FFmpeg found")
+                self.logger.info("Đã tìm thấy FFmpeg")
                 return True
             else:
-                self.logger.warning("FFmpeg not found in PATH")
+                self.logger.warning("Không tìm thấy FFmpeg trong PATH")
                 return False
         except FileNotFoundError:
-            self.logger.warning("FFmpeg not installed or not in PATH")
+            self.logger.warning("FFmpeg chưa cài hoặc không có trong PATH")
             return False
     
     def extract_last_frame(self, video_path: str, output_path: str) -> bool:
@@ -50,7 +50,7 @@ class VideoProcessor:
         output_path = Path(output_path)
         
         if not video_path.exists():
-            self.logger.error(f"Video not found: {video_path}")
+            self.logger.error(f"Không tìm thấy video: {video_path}")
             return False
         
         # Ensure output directory exists
@@ -61,7 +61,7 @@ class VideoProcessor:
             duration = self._get_video_duration(str(video_path))
             
             if duration is None or duration <= 0:
-                self.logger.error("Could not get video duration")
+                self.logger.error("Không lấy được thời lượng video")
                 return False
             
             # Extract frame at the last second
@@ -81,14 +81,14 @@ class VideoProcessor:
             result = subprocess.run(cmd, capture_output=True, text=True)
             
             if result.returncode == 0 and output_path.exists():
-                self.logger.success(f"Extracted last frame to: {output_path}")
+                self.logger.success(f"Đã trích xuất frame cuối: {output_path}")
                 return True
             else:
-                self.logger.error(f"FFmpeg error: {result.stderr}")
+                self.logger.error(f"FFmpeg lỗi: {result.stderr}")
                 return False
                 
         except Exception as e:
-            self.logger.error(f"Failed to extract frame: {e}")
+            self.logger.error(f"Không thể trích xuất frame: {e}")
             return False
     
     def _get_video_duration(self, video_path: str) -> Optional[float]:
@@ -129,11 +129,11 @@ class VideoProcessor:
         output_path = Path(output_path)
         
         if not video1_path.exists():
-            self.logger.error(f"Video 1 not found: {video1_path}")
+            self.logger.error(f"Không tìm thấy Video 1: {video1_path}")
             return False
         
         if not video2_path.exists():
-            self.logger.error(f"Video 2 not found: {video2_path}")
+            self.logger.error(f"Không tìm thấy Video 2: {video2_path}")
             return False
         
         # Ensure output directory exists
@@ -165,14 +165,14 @@ class VideoProcessor:
                 concat_file.unlink()
             
             if result.returncode == 0 and output_path.exists():
-                self.logger.success(f"Videos concatenated: {output_path}")
+                self.logger.success(f"Đã ghép video: {output_path}")
                 return True
             else:
-                self.logger.error(f"FFmpeg error: {result.stderr}")
+                self.logger.error(f"FFmpeg lỗi: {result.stderr}")
                 return False
                 
         except Exception as e:
-            self.logger.error(f"Failed to concat videos: {e}")
+            self.logger.error(f"Không thể ghép video: {e}")
             return False
     
     def cleanup_temp_videos(self, temp_dir: str):
@@ -189,10 +189,10 @@ class VideoProcessor:
             for file in temp_path.glob("*.jpg"):
                 file.unlink()
             
-            self.logger.info(f"Cleaned up temp files in: {temp_dir}")
+            self.logger.info(f"Đã dọn file tạm trong: {temp_dir}")
             
         except Exception as e:
-            self.logger.warning(f"Failed to cleanup temp files: {e}")
+            self.logger.warning(f"Không thể dọn file tạm: {e}")
 
 
 # Global instance

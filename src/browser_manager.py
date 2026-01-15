@@ -38,31 +38,44 @@ class BrowserManager:
         
         return profile_path
     
-    def _get_window_position(self) -> Tuple[int, int]:
-        """Get window position based on config (left/right monitor)."""
-        position = self.config.get("chrome_position", "left")
-        
+    def _get_window_size(self) -> Tuple[int, int]:
+        """Get window size (1/6 of screen)."""
         try:
             import screeninfo
             monitors = screeninfo.get_monitors()
+            primary = monitors[0]
             
-            if len(monitors) == 1:
-                # Single monitor - use small window
-                return (0, 0)
+            # 1/6 of screen = roughly 3 columns x 2 rows
+            width = primary.width // 3
+            height = primary.height // 2
             
-            if position == "right" and len(monitors) > 1:
-                # Right monitor
-                right_monitor = monitors[1]
-                return (right_monitor.x, right_monitor.y)
-            else:
-                # Left monitor (default)
-                return (0, 0)
-                
+            return (width, height)
+            
+        except Exception:
+            # Fallback to reasonable size
+            return (640, 360)
+    
+    def _get_window_position(self) -> Tuple[int, int]:
+        """Get window position based on thread_id (staggered)."""
+        try:
+            import screeninfo
+            monitors = screeninfo.get_monitors()
+            primary = monitors[0]
+            
+            # Calculate offset based on thread_id (stagger windows)
+            offset = (self.thread_id - 1) * 30  # 30px offset per thread
+            
+            # Stay in top-left area
+            x = offset % (primary.width // 2)
+            y = offset % (primary.height // 2)
+            
+            return (x, y)
+            
         except ImportError:
-            self.logger.warning("screeninfo not installed, using default position")
+            self.logger.warning("screeninfo chưa cài, sử dụng vị trí mặc định")
             return (0, 0)
         except Exception as e:
-            self.logger.warning(f"Failed to get monitor info: {e}")
+            self.logger.warning(f"Không lấy được thông tin màn hình: {e}")
             return (0, 0)
     
     def _get_chrome_options(self) -> uc.ChromeOptions:
@@ -75,21 +88,9 @@ class BrowserManager:
         # Disable infobars
         options.add_argument("--disable-infobars")
         
-        # Start maximized or set size
-        try:
-            import screeninfo
-            monitors = screeninfo.get_monitors()
-            
-            if len(monitors) == 1:
-                # Single monitor - small window with zoom
-                options.add_argument("--window-size=400,300")
-                options.add_argument("--force-device-scale-factor=0.25")
-            else:
-                # Multiple monitors - normal size
-                options.add_argument("--start-maximized")
-                
-        except ImportError:
-            options.add_argument("--window-size=800,600")
+        # Get window size (1/6 of screen)
+        width, height = self._get_window_size()
+        options.add_argument(f"--window-size={width},{height}")
         
         return options
     
@@ -101,7 +102,7 @@ class BrowserManager:
             True if successful
         """
         try:
-            self.logger.info(f"Starting Chrome for thread {self.thread_id}...")
+            self.logger.info(f"Đang khởi động Chrome cho luồng {self.thread_id}...")
             
             # Get Chrome options
             options = self._get_chrome_options()
@@ -120,9 +121,9 @@ class BrowserManager:
             if hasattr(self.driver, 'browser_pid'):
                 pid = self.driver.browser_pid
                 get_cleaner().save_pid(pid)
-                self.logger.success(f"Chrome started (PID: {pid})")
+                self.logger.success(f"Chrome đã khởi động (PID: {pid})")
             else:
-                self.logger.success("Chrome started")
+                self.logger.success("Chrome đã khởi động")
             
             # Set window position
             x, y = self._get_window_position()
@@ -131,21 +132,21 @@ class BrowserManager:
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to start Chrome: {e}")
+            self.logger.error(f"Không thể khởi động Chrome: {e}")
             return False
     
     def navigate(self, url: str) -> bool:
         """Navigate to URL."""
         if not self.driver:
-            self.logger.error("Browser not started")
+            self.logger.error("Trình duyệt chưa khởi động")
             return False
         
         try:
-            self.logger.info(f"Navigating to: {url}")
+            self.logger.info(f"Đang chuyển đến: {url}")
             self.driver.get(url)
             return True
         except Exception as e:
-            self.logger.error(f"Navigation failed: {e}")
+            self.logger.error(f"Chuyển trang thất bại: {e}")
             return False
     
     def get_driver(self) -> Optional[uc.Chrome]:
@@ -157,9 +158,9 @@ class BrowserManager:
         if self.driver:
             try:
                 self.driver.quit()
-                self.logger.info(f"Chrome closed for thread {self.thread_id}")
+                self.logger.info(f"Đã đóng Chrome cho luồng {self.thread_id}")
             except Exception as e:
-                self.logger.warning(f"Error closing Chrome: {e}")
+                self.logger.warning(f"Lỗi khi đóng Chrome: {e}")
             finally:
                 self.driver = None
     

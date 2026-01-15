@@ -31,7 +31,7 @@ class ProcessCleaner:
                 for pid in self._current_pids:
                     f.write(f"{pid}\n")
         except IOError as e:
-            self.logger.error(f"Failed to save PIDs: {e}")
+            self.logger.error(f"Không thể lưu PIDs: {e}")
     
     def _load_pids_from_file(self) -> List[int]:
         """Load PIDs from file."""
@@ -44,7 +44,7 @@ class ProcessCleaner:
                         if line.isdigit():
                             pids.append(int(line))
             except IOError as e:
-                self.logger.error(f"Failed to load PIDs: {e}")
+                self.logger.error(f"Không thể đọc PIDs: {e}")
         return pids
     
     def cleanup_orphans(self):
@@ -52,10 +52,10 @@ class ProcessCleaner:
         old_pids = self._load_pids_from_file()
         
         if not old_pids:
-            self.logger.info("No orphan Chrome processes found")
+            self.logger.info("Không tìm thấy tiến trình Chrome còn sót")
             return
         
-        self.logger.info(f"Found {len(old_pids)} orphan PID(s) to cleanup")
+        self.logger.info(f"Tìm thấy {len(old_pids)} tiến trình Chrome còn sót")
         
         killed = 0
         for pid in old_pids:
@@ -63,7 +63,7 @@ class ProcessCleaner:
                 killed += 1
         
         if killed > 0:
-            self.logger.success(f"Killed {killed} orphan Chrome process(es)")
+            self.logger.success(f"Đã dọn dẹp {killed} tiến trình Chrome")
         
         # Clear the file
         self._clear_pids_file()
@@ -80,14 +80,14 @@ class ProcessCleaner:
                     text=True
                 )
                 if result.returncode == 0:
-                    self.logger.debug(f"Killed process {pid}")
+                    self.logger.debug(f"Đã dừng tiến trình {pid}")
                     return True
                 else:
                     # Process might not exist anymore
                     return False
             else:  # Unix
                 os.kill(pid, signal.SIGTERM)
-                self.logger.debug(f"Killed process {pid}")
+                self.logger.debug(f"Đã dừng tiến trình {pid}")
                 return True
         except (OSError, subprocess.SubprocessError):
             # Process doesn't exist or access denied
@@ -114,10 +114,10 @@ class ProcessCleaner:
                     text=True
                 )
                 if 'SUCCESS' in result.stdout:
-                    self.logger.info("Killed all chromedriver.exe processes")
+                    self.logger.info("Đã dừng tất cả chromedriver.exe")
                     killed = 1
             except subprocess.SubprocessError as e:
-                self.logger.error(f"Failed to kill chromedriver: {e}")
+                self.logger.error(f"Không thể dừng chromedriver: {e}")
         else:
             try:
                 subprocess.run(['pkill', '-f', 'chromedriver'], capture_output=True)
@@ -129,13 +129,13 @@ class ProcessCleaner:
     
     def cleanup_on_exit(self):
         """Cleanup when app exits normally."""
-        self.logger.info("Cleaning up Chrome processes...")
+        self.logger.info("Đang dọn dẹp tiến trình Chrome...")
         
         for pid in self._current_pids:
             self._kill_process(pid)
         
         self._clear_pids_file()
-        self.logger.success("Cleanup complete")
+        self.logger.success("Đã dọn dẹp xong")
 
 
 # Global instance
