@@ -225,7 +225,11 @@ class ConfigTab(ttk.Frame):
             return
         
         var = self._vars[key]
-        value = var.get()
         
-        # Save to config
-        self.config.set(key, value)
+        try:
+            value = var.get()
+            # Save to config
+            self.config.set(key, value)
+        except Exception:
+            # Ignore if value is empty or invalid (user is still typing)
+            pass
