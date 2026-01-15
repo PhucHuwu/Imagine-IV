@@ -149,9 +149,9 @@ class ImageTab(ttk.Frame):
             self._stop_btn.configure(state=NORMAL)
             self._status_label.configure(text="Đang chạy...")
             
-            self._on_start("image", {
-                "images_count": self._images_var.get(),
-                "batch_size": self._batch_var.get()
+            self._on_start("anh", {
+                "images_per_download": self._images_var.get(),
+                "batch_count": self._batch_var.get()
             })
     
     def _on_stop_click(self):

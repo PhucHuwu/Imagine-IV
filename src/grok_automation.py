@@ -6,10 +6,8 @@ import requests
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
-from urllib.parse import urlparse
 
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
@@ -22,8 +20,15 @@ from .logger import get_logger
 class GrokAutomation:
     """Automate Grok Imagine for image and video generation."""
     
-    GROK_URL = "https://grok.x.ai"
-    IMAGINE_URL = "https://grok.x.ai/imagine"
+    # URLs
+    GROK_URL = "https://grok.com"
+    IMAGINE_URL = "https://grok.com/imagine"
+    
+    # Selectors (language-independent)
+    PROMPT_INPUT = "div.tiptap.ProseMirror[contenteditable='true']"
+    SUBMIT_BTN = "button[type='submit']"
+    GENERATED_IMAGE = "img[src*='imagine-public']"
+    GENERATED_VIDEO = "video[src*='imagine-public']"
     
     def __init__(self, browser_manager: BrowserManager):
         """
@@ -43,7 +48,7 @@ class GrokAutomation:
     
     def enter_prompt(self, prompt: str) -> bool:
         """
-        Enter prompt into the text input.
+        Enter prompt into the TipTap editor.
         
         Args:
             prompt: The prompt text to enter
@@ -52,188 +57,136 @@ class GrokAutomation:
             True if successful
         """
         if not self.driver:
-            self.logger.error("Trình duyệt chưa khởi động")
+            self.logger.error("Trinh duyet chua khoi dong")
             return False
         
         try:
             timeout = self.config.get("timeout_seconds", 60)
             
-            # Wait for input field
-            input_field = WebDriverWait(self.driver, timeout).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "textarea, input[type='text']"))
+            # Wait for TipTap editor
+            editor = WebDriverWait(self.driver, timeout).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, self.PROMPT_INPUT))
             )
             
-            # Clear and enter prompt
-            input_field.clear()
-            input_field.send_keys(prompt)
+            # Clear existing content and enter new prompt via JavaScript
+            # TipTap uses contenteditable, so we need JS to set content
+            self.driver.execute_script("""
+                const editor = arguments[0];
+                editor.innerHTML = '<p>' + arguments[1] + '</p>';
+                
+                // Trigger input event to notify TipTap
+                const event = new InputEvent('input', {
+                    bubbles: true,
+                    cancelable: true,
+                });
+                editor.dispatchEvent(event);
+            """, editor, prompt)
             
-            self.logger.info("Đã nhập prompt thành công")
+            self.logger.info("Da nhap prompt thanh cong")
             return True
             
         except TimeoutException:
-            self.logger.error("Hết thời gian chờ ô nhập liệu")
+            self.logger.error("Het thoi gian cho o nhap lieu")
             return False
         except Exception as e:
-            self.logger.error(f"Không thể nhập prompt: {e}")
-            return False
-    
-    def upload_image(self, image_path: str) -> bool:
-        """
-        Upload an image to Grok.
-        
-        Args:
-            image_path: Path to the image file
-            
-        Returns:
-            True if successful
-        """
-        image_path = Path(image_path)
-        
-        if not image_path.exists():
-            self.logger.error(f"Không tìm thấy ảnh: {image_path}")
-            return False
-        
-        try:
-            # Find file input
-            file_input = self.driver.find_element(By.CSS_SELECTOR, "input[type='file']")
-            file_input.send_keys(str(image_path.absolute()))
-            
-            self.logger.info(f"Đã upload ảnh: {image_path.name}")
-            time.sleep(1)  # Wait for upload
-            return True
-            
-        except NoSuchElementException:
-            self.logger.error("Không tìm thấy nút upload file")
-            return False
-        except Exception as e:
-            self.logger.error(f"Không thể upload ảnh: {e}")
-            return False
-    
-    def select_video_mode(self) -> bool:
-        """Select video generation mode if available."""
-        try:
-            # Look for video mode toggle/button
-            video_buttons = self.driver.find_elements(
-                By.XPATH, 
-                "//*[contains(text(), 'video') or contains(text(), 'Video')]"
-            )
-            
-            if video_buttons:
-                video_buttons[0].click()
-                self.logger.info("Đã chọn chế độ video")
-                time.sleep(0.5)
-                return True
-            else:
-                self.logger.warning("Không tìm thấy nút chế độ video")
-                return False
-                
-        except Exception as e:
-            self.logger.error(f"Không thể chọn chế độ video: {e}")
+            self.logger.error(f"Khong the nhap prompt: {e}")
             return False
     
     def submit_prompt(self) -> bool:
-        """Submit the prompt (press Enter or click send button)."""
+        """Submit the prompt by clicking send button."""
         try:
-            # Try Enter key first
-            input_field = self.driver.find_element(By.CSS_SELECTOR, "textarea, input[type='text']")
-            input_field.send_keys(Keys.RETURN)
+            timeout = self.config.get("timeout_seconds", 60)
             
-            self.logger.info("Đã gửi prompt")
+            # Wait for submit button to be clickable
+            submit_btn = WebDriverWait(self.driver, timeout).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, self.SUBMIT_BTN))
+            )
+            
+            submit_btn.click()
+            
+            self.logger.info("Da gui prompt")
             return True
             
+        except TimeoutException:
+            self.logger.error("Het thoi gian cho nut gui")
+            return False
         except Exception as e:
-            self.logger.error(f"Không thể gửi prompt: {e}")
+            self.logger.error(f"Khong the gui prompt: {e}")
             return False
     
-    def wait_for_images(self, timeout: int = None) -> bool:
+    def wait_for_images(self, timeout: int = None, min_count: int = 1) -> bool:
         """
         Wait for images to be generated.
         
         Args:
             timeout: Maximum wait time in seconds
+            min_count: Minimum number of images to wait for
             
         Returns:
             True if images are ready
         """
         if timeout is None:
-            timeout = self.config.get("timeout_seconds", 60)
+            timeout = self.config.get("timeout_seconds", 120)
         
-        self.logger.info(f"Đang chờ ảnh (timeout: {timeout}s)...")
+        self.logger.info(f"Dang cho anh (timeout: {timeout}s)...")
         
-        try:
-            # Wait for image elements to appear
-            WebDriverWait(self.driver, timeout).until(
-                EC.presence_of_all_elements_located((By.CSS_SELECTOR, "img[src*='imagine-public']"))
-            )
-            
-            # Additional wait for all images to load
-            time.sleep(2)
-            
-            self.logger.success("Ảnh đã sẵn sàng")
-            return True
-            
-        except TimeoutException:
-            self.logger.error("Hết thời gian chờ ảnh")
-            return False
-    
-    def wait_for_video(self, timeout: int = None) -> bool:
-        """
-        Wait for video to be generated.
+        start_time = time.time()
         
-        Args:
-            timeout: Maximum wait time in seconds
+        while time.time() - start_time < timeout:
+            try:
+                images = self.driver.find_elements(By.CSS_SELECTOR, self.GENERATED_IMAGE)
+                
+                # Filter out thumbnails and small images
+                valid_images = []
+                for img in images:
+                    src = img.get_attribute("src") or ""
+                    width = img.get_attribute("width") or "0"
+                    
+                    # Check if it's a real generated image (not thumbnail)
+                    if "imagine-public" in src and "_thumbnail" not in src:
+                        valid_images.append(img)
+                
+                if len(valid_images) >= min_count:
+                    # Wait a bit more for images to fully load
+                    time.sleep(2)
+                    self.logger.success(f"Tim thay {len(valid_images)} anh")
+                    return True
+                    
+            except Exception:
+                pass
             
-        Returns:
-            True if video is ready
-        """
-        if timeout is None:
-            timeout = self.config.get("timeout_seconds", 120)  # Videos take longer
+            time.sleep(1)
         
-        self.logger.info(f"Đang chờ video (timeout: {timeout}s)...")
-        
-        try:
-            # Wait for video element or download button
-            WebDriverWait(self.driver, timeout).until(
-                EC.presence_of_element_located((
-                    By.CSS_SELECTOR, 
-                    "video, a[href*='.mp4'], button[aria-label*='download']"
-                ))
-            )
-            
-            time.sleep(2)
-            
-            self.logger.success("Video đã sẵn sàng")
-            return True
-            
-        except TimeoutException:
-            self.logger.error("Hết thời gian chờ video")
-            return False
+        self.logger.error("Het thoi gian cho anh")
+        return False
     
     def get_image_urls(self, count: int = 4) -> List[str]:
         """
         Get URLs of generated images.
         
         Args:
-            count: Number of images to get (left to right, top to bottom)
+            count: Maximum number of images to get
             
         Returns:
             List of image URLs
         """
         try:
-            # Find all image elements
-            images = self.driver.find_elements(By.CSS_SELECTOR, "img[src*='imagine-public']")
+            images = self.driver.find_elements(By.CSS_SELECTOR, self.GENERATED_IMAGE)
             
             urls = []
-            for img in images[:count]:
+            for img in images:
                 src = img.get_attribute("src")
-                if src:
-                    urls.append(src)
+                if src and "imagine-public" in src and "_thumbnail" not in src:
+                    if src not in urls:  # Avoid duplicates
+                        urls.append(src)
+                        if len(urls) >= count:
+                            break
             
-            self.logger.info(f"Tìm thấy {len(urls)} ảnh")
+            self.logger.info(f"Tim thay {len(urls)} anh")
             return urls
             
         except Exception as e:
-            self.logger.error(f"Không thể lấy URL ảnh: {e}")
+            self.logger.error(f"Khong the lay URL anh: {e}")
             return []
     
     def download_images(self, urls: List[str], output_dir: str) -> List[str]:
@@ -251,7 +204,7 @@ class GrokAutomation:
         output_path.mkdir(parents=True, exist_ok=True)
         
         saved_files = []
-        timestamp = datetime.now().strftime("%d-%m_%H-%M")
+        timestamp = datetime.now().strftime("%d-%m_%H-%M-%S")
         
         for idx, url in enumerate(urls, 1):
             try:
@@ -265,53 +218,66 @@ class GrokAutomation:
                         f.write(response.content)
                     
                     saved_files.append(str(filepath))
-                    self.logger.info(f"Đã tải: {filename}")
+                    self.logger.info(f"Da tai: {filename}")
                 else:
-                    self.logger.error(f"Không thể tải ảnh {idx}: HTTP {response.status_code}")
+                    self.logger.error(f"Khong the tai anh {idx}: HTTP {response.status_code}")
                     
             except Exception as e:
-                self.logger.error(f"Không thể tải ảnh {idx}: {e}")
+                self.logger.error(f"Khong the tai anh {idx}: {e}")
         
         return saved_files
     
-    def click_create_video_button(self) -> bool:
-        """Click 'Create Video' button on a generated image."""
-        try:
-            # Look for video creation button on images
-            video_btn = self.driver.find_element(
-                By.XPATH,
-                "//*[contains(text(), 'video') or contains(text(), 'Video') or contains(@aria-label, 'video')]"
-            )
-            video_btn.click()
+    def wait_for_video(self, timeout: int = None) -> bool:
+        """
+        Wait for video to be generated.
+        
+        Args:
+            timeout: Maximum wait time in seconds
             
-            self.logger.info("Đã nhấn nút tạo video")
-            return True
+        Returns:
+            True if video is ready
+        """
+        if timeout is None:
+            timeout = self.config.get("timeout_seconds", 180)  # Videos take longer
+        
+        self.logger.info(f"Dang cho video (timeout: {timeout}s)...")
+        
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            try:
+                videos = self.driver.find_elements(By.CSS_SELECTOR, self.GENERATED_VIDEO)
+                
+                for video in videos:
+                    src = video.get_attribute("src") or ""
+                    if "imagine-public" in src and ".mp4" in src:
+                        time.sleep(2)
+                        self.logger.success("Video da san sang")
+                        return True
+                        
+            except Exception:
+                pass
             
-        except NoSuchElementException:
-            self.logger.error("Không tìm thấy nút tạo video")
-            return False
-        except Exception as e:
-            self.logger.error(f"Không thể nhấn tạo video: {e}")
-            return False
+            time.sleep(2)
+        
+        self.logger.error("Het thoi gian cho video")
+        return False
     
     def get_video_url(self) -> Optional[str]:
         """Get the URL of the generated video."""
         try:
-            # Try video element
-            video = self.driver.find_element(By.CSS_SELECTOR, "video source")
-            src = video.get_attribute("src")
-            if src:
-                return src
+            videos = self.driver.find_elements(By.CSS_SELECTOR, self.GENERATED_VIDEO)
             
-            # Try download link
-            link = self.driver.find_element(By.CSS_SELECTOR, "a[href*='.mp4']")
-            return link.get_attribute("href")
+            for video in videos:
+                src = video.get_attribute("src")
+                if src and "imagine-public" in src and ".mp4" in src:
+                    return src
             
-        except NoSuchElementException:
-            self.logger.error("Không tìm thấy URL video")
+            self.logger.error("Khong tim thay URL video")
             return None
+            
         except Exception as e:
-            self.logger.error(f"Không thể lấy URL video: {e}")
+            self.logger.error(f"Khong the lay URL video: {e}")
             return None
     
     def download_video(self, url: str, output_path: str) -> bool:
@@ -326,21 +292,25 @@ class GrokAutomation:
             True if successful
         """
         try:
-            self.logger.info(f"Đang tải video...")
+            self.logger.info("Dang tai video...")
             
-            response = requests.get(url, timeout=120, stream=True)
+            response = requests.get(url, timeout=180, stream=True)
             
             if response.status_code == 200:
                 with open(output_path, 'wb') as f:
                     for chunk in response.iter_content(chunk_size=8192):
                         f.write(chunk)
                 
-                self.logger.success(f"Đã lưu video: {output_path}")
+                self.logger.success(f"Da luu video: {output_path}")
                 return True
             else:
-                self.logger.error(f"Không thể tải video: HTTP {response.status_code}")
+                self.logger.error(f"Khong the tai video: HTTP {response.status_code}")
                 return False
                 
         except Exception as e:
-            self.logger.error(f"Không thể tải video: {e}")
+            self.logger.error(f"Khong the tai video: {e}")
             return False
+    
+    def refresh_driver(self):
+        """Refresh driver reference after browser restart."""
+        self.driver = self.browser.get_driver()

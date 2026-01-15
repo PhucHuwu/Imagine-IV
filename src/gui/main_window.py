@@ -157,30 +157,77 @@ class MainWindow:
     
     def _on_start(self, mode: str, settings: dict):
         """Handle start button from tabs."""
-        self.logger.info(f"Đang bắt đầu tạo {mode} với cài đặt: {settings}")
-        self._status_label.configure(text=f"Đang tạo {mode}...")
+        self.logger.info(f"Dang bat dau tao {mode} voi cai dat: {settings}")
+        self._status_label.configure(text=f"Dang tao {mode}...")
         
         # Check if browser is open
-        if hasattr(self, '_login_browser') and self._login_browser and self._login_browser.is_running():
-            # Navigate to Grok Imagine
-            self._login_browser.navigate("https://grok.com/imagine")
-            
-            # Zoom browser to 25%
-            self._login_browser.set_zoom(25)
-            self.logger.info("Đã zoom trình duyệt xuống 25%")
-        else:
-            self.logger.error("Trình duyệt chưa mở. Hãy nhấn 'Mở Trình Duyệt Để Đăng Nhập' trước!")
+        if not (hasattr(self, '_login_browser') and self._login_browser and self._login_browser.is_running()):
+            self.logger.error("Trinh duyet chua mo. Hay nhan 'Mo Trinh Duyet De Dang Nhap' truoc!")
+            self._status_label.configure(text="Loi: Chua mo trinh duyet")
             return
         
-        # TODO: Implement actual generation logic
-        # This will be connected to thread_manager and grok_automation
+        # Navigate to Grok Imagine
+        self._login_browser.navigate("https://grok.com/imagine")
+        
+        # Zoom browser to 25%
+        self._login_browser.set_zoom(25)
+        self.logger.info("Da zoom trinh duyet xuong 25%")
+        
+        if mode == "anh":
+            self._start_image_generation(settings)
+        elif mode == "video":
+            self._start_video_generation(settings)
+    
+    def _start_image_generation(self, settings: dict):
+        """Start image generation workflow."""
+        from ..image_generator import ImageGenerator
+        
+        # Stop existing generator if running
+        if hasattr(self, '_image_generator') and self._image_generator and self._image_generator.is_running():
+            self.logger.warning("Dang chay, dung truoc...")
+            self._image_generator.stop()
+            return
+        
+        # Create and start generator
+        self._image_generator = ImageGenerator(
+            browser=self._login_browser,
+            on_progress=self._on_generation_progress
+        )
+        
+        batch_count = settings.get("batch_count", 10)
+        images_per_batch = settings.get("images_per_download", 4)
+        
+        self._image_generator.start(batch_count=batch_count, images_per_batch=images_per_batch)
+    
+    def _start_video_generation(self, settings: dict):
+        """Start video generation workflow."""
+        # TODO: Implement video generation
+        self.logger.info("Video generation chua duoc implement")
+    
+    def _on_generation_progress(self, current: int, total: int, status: str):
+        """Handle progress updates from generator."""
+        # Update UI in main thread
+        self.root.after(0, lambda: self._update_progress_ui(current, total, status))
+    
+    def _update_progress_ui(self, current: int, total: int, status: str):
+        """Update progress in UI (must be called from main thread)."""
+        progress_text = f"{status} ({current}/{total})"
+        self._status_label.configure(text=progress_text)
+        
+        # Update progress bar in image tab if exists
+        if hasattr(self, 'image_tab') and hasattr(self.image_tab, 'update_progress'):
+            self.image_tab.update_progress(current, total)
     
     def _on_stop(self):
         """Handle stop button."""
-        self.logger.info("Đang dừng...")
-        self._status_label.configure(text="Đang dừng...")
+        self.logger.info("Dang dung...")
+        self._status_label.configure(text="Dang dung...")
         
-        # TODO: Stop running tasks
+        # Stop image generator if running
+        if hasattr(self, '_image_generator') and self._image_generator and self._image_generator.is_running():
+            self._image_generator.stop()
+        
+        self._status_label.configure(text="Da dung")
     
     def _on_login_click(self):
         """Handle login button click - Open browser without navigating."""
