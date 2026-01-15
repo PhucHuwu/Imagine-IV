@@ -1,5 +1,6 @@
 selenium
 webdriver-manager
+undetected-chromedriver
 ttkbootstrap
 requests
 Pillow

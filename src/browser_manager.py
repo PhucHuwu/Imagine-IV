@@ -1,14 +1,11 @@
 """
-Browser Manager - Selenium WebDriver with Chrome profile management
+Browser Manager - Undetected ChromeDriver with Chrome profile management
 """
 import os
 from pathlib import Path
 from typing import Optional, Tuple
 
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
+import undetected_chromedriver as uc
 
 from .config import get_config
 from .logger import get_logger
@@ -16,7 +13,7 @@ from .process_cleaner import get_cleaner
 
 
 class BrowserManager:
-    """Manage Chrome browser instances with profiles."""
+    """Manage Chrome browser instances with profiles using undetected-chromedriver."""
     
     def __init__(self, thread_id: int = 1):
         """
@@ -28,7 +25,7 @@ class BrowserManager:
         self.thread_id = thread_id
         self.config = get_config()
         self.logger = get_logger()
-        self.driver: Optional[webdriver.Chrome] = None
+        self.driver: Optional[uc.Chrome] = None
     
     def _get_profile_path(self) -> Path:
         """Get Chrome profile path for this thread."""
@@ -68,17 +65,9 @@ class BrowserManager:
             self.logger.warning(f"Failed to get monitor info: {e}")
             return (0, 0)
     
-    def _get_chrome_options(self) -> Options:
-        """Configure Chrome options."""
-        options = Options()
-        
-        # Use persistent profile
-        profile_path = self._get_profile_path()
-        options.add_argument(f"--user-data-dir={profile_path}")
-        
-        # Disable automation flags
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
+    def _get_chrome_options(self) -> uc.ChromeOptions:
+        """Configure Chrome options for undetected-chromedriver."""
+        options = uc.ChromeOptions()
         
         # Disable notifications
         options.add_argument("--disable-notifications")
@@ -106,7 +95,7 @@ class BrowserManager:
     
     def start(self) -> bool:
         """
-        Start Chrome browser.
+        Start Chrome browser using undetected-chromedriver.
         
         Returns:
             True if successful
@@ -117,21 +106,28 @@ class BrowserManager:
             # Get Chrome options
             options = self._get_chrome_options()
             
-            # Install and get chromedriver
-            service = Service(ChromeDriverManager().install())
+            # Get profile path
+            profile_path = self._get_profile_path()
             
-            # Create driver
-            self.driver = webdriver.Chrome(service=service, options=options)
+            # Create undetected Chrome driver
+            self.driver = uc.Chrome(
+                options=options,
+                user_data_dir=str(profile_path),
+                use_subprocess=True
+            )
             
             # Save PID for cleanup
-            pid = self.driver.service.process.pid
-            get_cleaner().save_pid(pid)
+            if hasattr(self.driver, 'browser_pid'):
+                pid = self.driver.browser_pid
+                get_cleaner().save_pid(pid)
+                self.logger.success(f"Chrome started (PID: {pid})")
+            else:
+                self.logger.success("Chrome started")
             
             # Set window position
             x, y = self._get_window_position()
             self.driver.set_window_position(x, y)
             
-            self.logger.success(f"Chrome started (PID: {pid})")
             return True
             
         except Exception as e:
@@ -152,7 +148,7 @@ class BrowserManager:
             self.logger.error(f"Navigation failed: {e}")
             return False
     
-    def get_driver(self) -> Optional[webdriver.Chrome]:
+    def get_driver(self) -> Optional[uc.Chrome]:
         """Get the WebDriver instance."""
         return self.driver
     
