@@ -185,7 +185,11 @@ class MainWindow:
         
         # Browser opened, not generating
         self._login_btn.configure(state=DISABLED)  # Don't allow opening another browser
-        self._confirm_btn.configure(state=NORMAL)
+        # Disable confirm button if already logged in (remembered)
+        if self._logged_in_var.get():
+            self._confirm_btn.configure(state=DISABLED)
+        else:
+            self._confirm_btn.configure(state=NORMAL)
         self.image_tab.set_buttons_enabled(True)
         self.video_tab.set_buttons_enabled(True)
     

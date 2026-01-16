@@ -217,3 +217,21 @@ class VideoTab(ttk.Frame):
         self._start_btn.configure(state=NORMAL)
         self._stop_btn.configure(state=DISABLED)
         self._status_label.configure(text=f"Lỗi: {message}")
+    
+    def set_buttons_enabled(self, enabled: bool, allow_stop: bool = False):
+        """
+        Enable or disable buttons.
+        
+        Args:
+            enabled: True to enable, False to disable
+            allow_stop: If True and enabled=False, keep stop button enabled
+        """
+        if enabled:
+            self._start_btn.configure(state=NORMAL)
+            self._stop_btn.configure(state=DISABLED)
+        else:
+            self._start_btn.configure(state=DISABLED)
+            if allow_stop:
+                self._stop_btn.configure(state=NORMAL)
+            else:
+                self._stop_btn.configure(state=DISABLED)
