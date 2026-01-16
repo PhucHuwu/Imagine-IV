@@ -151,7 +151,11 @@ class VideoGenerator:
                     self._report_progress(i, batch_count, "Đang tạo video 1/2...")
                     video1_path = temp_dir / f"video1_{i}.mp4"
                     
-                    if not self._create_video(source_image, video1_prompt, str(video1_path)):
+                    result1 = self._create_video(source_image, video1_prompt, str(video1_path))
+                    if result1 == "moderated":
+                        self.logger.error("Video 1 bị nhạy cảm, kết thúc batch")
+                        break
+                    if not result1:
                         self.logger.error("Không thể tạo video 1, bỏ qua")
                         continue
                     
@@ -171,7 +175,11 @@ class VideoGenerator:
                     video2_path = temp_dir / f"video2_{i}.mp4"
                     video2_full_prompt = self.VIDEO2_PREFIX + video2_prompt
                     
-                    if not self._create_video(str(last_frame_path), video2_full_prompt, str(video2_path)):
+                    result2 = self._create_video(str(last_frame_path), video2_full_prompt, str(video2_path))
+                    if result2 == "moderated":
+                        self.logger.error("Video 2 bị nhạy cảm, kết thúc batch")
+                        break
+                    if not result2:
                         self.logger.error("Không thể tạo video 2, bỏ qua")
                         continue
                     
@@ -256,17 +264,18 @@ class VideoGenerator:
             self.logger.error(f"Lỗi tạo ảnh nguồn: {e}")
             return None
     
-    def _create_video(self, image_path: str, prompt: str, output_path: str) -> bool:
+    def _create_video(self, image_path: str, prompt: str, output_path: str) -> Optional[str]:
         """
         Create a single 6s video from image + prompt.
         
         Flow:
         1. Navigate to Imagine
-        2. Upload image → Grok auto-generates first video
-        3. Wait for first video to complete
-        4. Enter custom prompt
-        5. Wait for custom video to complete
-        6. Download video
+        2. Upload image → Grok auto-generates 2 videos
+        3. Wait for video to complete
+        4. Check if video is moderated, try switching if needed
+        5. Enter custom prompt
+        6. Wait for custom video to complete
+        7. Download video
         
         Args:
             image_path: Source image path
@@ -274,7 +283,9 @@ class VideoGenerator:
             output_path: Where to save video
             
         Returns:
-            True if successful
+            "success" if video created
+            "moderated" if both videos are moderated (should skip batch)
+            None if other error
         """
         try:
             # Navigate to Imagine page first
@@ -284,12 +295,12 @@ class VideoGenerator:
             # Upload image (this will redirect to video creation page)
             if not self.grok.upload_image(image_path):
                 self.logger.error("Không thể upload ảnh")
-                return False
+                return None
             
             # Wait for video creation page to load
             if not self.grok.wait_for_video_page(timeout=30):
                 self.logger.error("Trang tạo video không tải được")
-                return False
+                return None
             
             # Make sure Video mode is selected (click film icon)
             self.grok.click_video_mode()
@@ -299,7 +310,13 @@ class VideoGenerator:
             self.logger.info("Đang chờ video tự động tạo...")
             if not self.grok.wait_for_initial_video():
                 self.logger.error("Video tự động không được tạo")
-                return False
+                return None
+            
+            # Check for moderated content - try to find a non-moderated video
+            time.sleep(1)
+            if not self.grok.find_non_moderated_video():
+                self.logger.error("Cả 2 video tự động đều bị nhạy cảm")
+                return "moderated"
             
             # Now we can enter our custom prompt
             time.sleep(1)
@@ -307,34 +324,39 @@ class VideoGenerator:
             # Enter video prompt into textarea
             if not self.grok.enter_video_prompt(prompt):
                 self.logger.error("Không thể nhập prompt video")
-                return False
+                return None
             
             # Submit prompt to generate new video with our prompt
             if not self.grok.submit_video_prompt():
                 self.logger.error("Không thể gửi prompt")
-                return False
+                return None
             
             # Wait for our custom video to be generated
             video_url = self.grok.wait_for_video_generation()
             
+            # Check if video from prompt is moderated
+            if video_url == "moderated":
+                self.logger.error("Video từ prompt bị nhạy cảm")
+                return "moderated"
+            
             if not video_url:
                 self.logger.error("Video không được tạo")
-                return False
+                return None
             
             # Download video
             if not self.grok.download_video_to_path(video_url, output_path):
                 self.logger.error("Không thể tải video")
-                return False
+                return None
             
             # Go back to Imagine page for next operation
             self.grok.go_back_to_imagine()
             time.sleep(1)
             
-            return True
+            return "success"
             
         except Exception as e:
             self.logger.error(f"Lỗi tạo video: {e}")
-            return False
+            return None
     
     def _cleanup_temp_files(self, files: list):
         """Clean up temporary files."""

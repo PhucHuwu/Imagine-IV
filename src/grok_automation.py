@@ -54,6 +54,14 @@ class GrokAutomation:
     IMAGE_BLURRED = "article img.blur-sm, article img.blur-md"
     VIDEO_IN_ARTICLE = "article video"
     
+    # Moderated content detection (video bị nhạy cảm)
+    MODERATED_BLUR = "article img.blur-lg.saturate-0"
+    MODERATED_ICON = "article svg.lucide-eye-off"
+    
+    # Video thumbnail sidebar (2 videos after auto-generation)
+    VIDEO_THUMBNAIL_SIDEBAR = ".snap-y.snap-mandatory"
+    VIDEO_THUMBNAIL_ITEM = ".snap-y.snap-mandatory > div:not(.scroll-gradient-sentinel)"
+    
     def __init__(self, browser_manager: BrowserManager):
         """
         Initialize Grok automation.
@@ -1083,12 +1091,15 @@ class GrokAutomation:
     def wait_for_video_generation(self, timeout: int = None) -> Optional[str]:
         """
         Wait for video to be generated on the video creation page.
+        This should be called AFTER submitting a prompt.
         
         Args:
             timeout: Maximum wait time
             
         Returns:
-            Video URL if successful, None if failed
+            Video URL if successful
+            "moderated" if video was blocked due to sensitive content
+            None if failed for other reasons
         """
         if timeout is None:
             timeout = self.config.get("timeout_seconds", 180)
@@ -1097,7 +1108,23 @@ class GrokAutomation:
         
         start_time = time.time()
         last_log_time = 0
+        generation_started = False
         
+        # First, wait for generation to START (textarea should pulse, images blur)
+        self.logger.debug("Đang chờ video bắt đầu tạo...")
+        
+        while time.time() - start_time < 30:  # 30s to detect start
+            if self.is_video_generating():
+                generation_started = True
+                self.logger.info("Phát hiện video đang tạo...")
+                break
+            time.sleep(1)
+        
+        if not generation_started:
+            # Maybe it started and finished very fast, check for video
+            self.logger.debug("Không phát hiện trạng thái tạo, kiểm tra video...")
+        
+        # Now wait for generation to COMPLETE
         while time.time() - start_time < timeout:
             try:
                 # Check for rate limit
@@ -1105,30 +1132,67 @@ class GrokAutomation:
                     self.logger.warning("Phát hiện rate limit khi tạo video")
                     return None
                 
-                # Look for video element in the article
-                videos = self.driver.find_elements(By.CSS_SELECTOR, "article video")
+                is_generating = self.is_video_generating()
                 
-                for video in videos:
-                    src = video.get_attribute("src") or ""
-                    
-                    # Check source element
-                    if not src:
-                        try:
-                            source = video.find_element(By.TAG_NAME, "source")
-                            src = source.get_attribute("src") or ""
-                        except:
-                            pass
-                    
-                    if src and ("imagine-public" in src or "assets.grok.com" in src) and ".mp4" in src:
-                        time.sleep(2)  # Wait for video to fully load
-                        self.logger.success("Video đã được tạo")
-                        return src
-                
-                # Debug log
+                # Debug log every 15 seconds
                 elapsed = int(time.time() - start_time)
                 if elapsed > 0 and elapsed % 15 == 0 and elapsed != last_log_time:
                     last_log_time = elapsed
-                    self.logger.debug(f"[{elapsed}s] Đang chờ video...")
+                    self.logger.debug(f"[{elapsed}s] Đang tạo video... (generating={is_generating})")
+                
+                # If generation completed (was generating, now stopped)
+                if generation_started and not is_generating:
+                    # Wait a bit for video to fully load
+                    time.sleep(2)
+                    
+                    # First check if video is moderated
+                    if self.is_current_video_moderated():
+                        self.logger.warning("Video bị nhạy cảm (moderated)")
+                        return "moderated"
+                    
+                    # Look for video element in the article
+                    videos = self.driver.find_elements(By.CSS_SELECTOR, self.VIDEO_IN_ARTICLE)
+                    
+                    for video in videos:
+                        src = video.get_attribute("src") or ""
+                        
+                        # Check source element
+                        if not src:
+                            try:
+                                source = video.find_element(By.TAG_NAME, "source")
+                                src = source.get_attribute("src") or ""
+                            except:
+                                pass
+                        
+                        if src and ("imagine-public" in src or "assets.grok.com" in src) and ".mp4" in src:
+                            self.logger.success("Video đã được tạo")
+                            return src
+                    
+                    # If no video found but generation stopped, wait a bit more
+                    self.logger.debug("Tạo xong nhưng chưa thấy video, đợi thêm...")
+                    time.sleep(3)
+                    
+                    # Check moderated again after waiting
+                    if self.is_current_video_moderated():
+                        self.logger.warning("Video bị nhạy cảm (moderated)")
+                        return "moderated"
+                    
+                    # Check again for video
+                    videos = self.driver.find_elements(By.CSS_SELECTOR, self.VIDEO_IN_ARTICLE)
+                    for video in videos:
+                        src = video.get_attribute("src") or ""
+                        if not src:
+                            try:
+                                source = video.find_element(By.TAG_NAME, "source")
+                                src = source.get_attribute("src") or ""
+                            except:
+                                pass
+                        if src and ("imagine-public" in src or "assets.grok.com" in src):
+                            self.logger.success("Video đã được tạo")
+                            return src
+                    
+                    self.logger.error("Video tạo xong nhưng không tìm thấy URL")
+                    return None
                     
             except Exception as e:
                 self.logger.debug(f"Lỗi khi kiểm tra video: {e}")
@@ -1175,3 +1239,114 @@ class GrokAutomation:
             # Fallback: navigate directly
             self.navigate_to_imagine()
             return True
+
+    def is_current_video_moderated(self) -> bool:
+        """
+        Check if the currently displayed video is moderated (sensitive content).
+        
+        Indicators:
+        - Images with blur-lg and saturate-0 classes
+        - Eye-off icon (lucide-eye-off)
+        
+        Returns:
+            True if video is moderated/blocked
+        """
+        try:
+            # Check for blurred/desaturated images
+            blurred = self.driver.find_elements(By.CSS_SELECTOR, self.MODERATED_BLUR)
+            if blurred:
+                return True
+            
+            # Check for eye-off icon
+            eye_off = self.driver.find_elements(By.CSS_SELECTOR, self.MODERATED_ICON)
+            if eye_off:
+                return True
+            
+            return False
+            
+        except Exception:
+            return False
+    
+    def get_video_thumbnail_count(self) -> int:
+        """
+        Get the number of video thumbnails in the sidebar.
+        
+        Returns:
+            Number of video thumbnails (usually 2 after auto-generation)
+        """
+        try:
+            thumbnails = self.driver.find_elements(By.CSS_SELECTOR, self.VIDEO_THUMBNAIL_ITEM)
+            # Filter out sentinel divs
+            real_thumbnails = [t for t in thumbnails if 'scroll-gradient-sentinel' not in (t.get_attribute('class') or '')]
+            return len(real_thumbnails)
+        except Exception:
+            return 0
+    
+    def switch_to_video_thumbnail(self, index: int) -> bool:
+        """
+        Switch to a specific video thumbnail by clicking it.
+        
+        Args:
+            index: 0-based index of the thumbnail (0 = first, 1 = second)
+            
+        Returns:
+            True if successful
+        """
+        try:
+            # Find the sidebar container
+            sidebar = self.driver.find_element(By.CSS_SELECTOR, self.VIDEO_THUMBNAIL_SIDEBAR)
+            
+            # Find all clickable elements in sidebar (images or divs)
+            # The thumbnails are typically images or video elements
+            children = sidebar.find_elements(By.XPATH, "./*[not(contains(@class, 'scroll-gradient-sentinel'))]")
+            
+            if index < 0 or index >= len(children):
+                self.logger.debug(f"Thumbnail index {index} không hợp lệ (có {len(children)} thumbnails)")
+                return False
+            
+            # Click the thumbnail
+            target = children[index]
+            target.click()
+            time.sleep(1)  # Wait for switch animation
+            
+            self.logger.debug(f"Đã chuyển sang video thumbnail {index + 1}")
+            return True
+            
+        except Exception as e:
+            self.logger.debug(f"Không thể chuyển thumbnail: {e}")
+            return False
+    
+    def find_non_moderated_video(self) -> bool:
+        """
+        Check both auto-generated videos and find one that is not moderated.
+        Grok generates 2 videos after upload - this tries both.
+        
+        Flow:
+        1. Check current video (video 2, auto-focused)
+        2. If moderated, try switching to video 1
+        3. If video 1 is also moderated, return False
+        
+        Returns:
+            True if found a non-moderated video, False if both are moderated
+        """
+        # First check current video (usually video 2, auto-focused)
+        if not self.is_current_video_moderated():
+            self.logger.debug("Video hiện tại không bị nhạy cảm")
+            return True
+        
+        self.logger.warning("Video 2 bị nhạy cảm, thử video 1...")
+        
+        # Try switching to first thumbnail (video 1)
+        if self.switch_to_video_thumbnail(0):
+            time.sleep(1)  # Wait for content to load
+            
+            if not self.is_current_video_moderated():
+                self.logger.info("Video 1 không bị nhạy cảm, tiếp tục")
+                return True
+            else:
+                self.logger.error("Cả 2 video đều bị nhạy cảm")
+                return False
+        else:
+            # Can't switch, check if only 1 video or no sidebar
+            self.logger.warning("Không thể chuyển thumbnail, kiểm tra lại video hiện tại")
+            return not self.is_current_video_moderated()
