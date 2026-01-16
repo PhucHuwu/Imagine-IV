@@ -1,0 +1,347 @@
+"""
+Video Generator - Orchestrates video generation workflow
+Creates 12s videos by combining two 6s video clips
+"""
+import time
+import threading
+from datetime import datetime
+from pathlib import Path
+from typing import Optional, Callable, Dict
+
+from .browser_manager import BrowserManager
+from .grok_automation import GrokAutomation
+from .prompt_generator import PromptGenerator
+from .video_processor import get_video_processor
+from .config import get_config
+from .logger import get_logger
+
+
+class VideoGenerator:
+    """Generate 12s videos using Grok Imagine."""
+    
+    VIDEO2_PREFIX = "Continue the motion smoothly from this exact frame. Maintain the same style, lighting, and camera angle. "
+    
+    def __init__(
+        self,
+        browser: BrowserManager,
+        on_progress: Optional[Callable[[int, int, str], None]] = None
+    ):
+        """
+        Initialize video generator.
+        
+        Args:
+            browser: Browser manager instance
+            on_progress: Callback (current, total, status)
+        """
+        self.browser = browser
+        self.on_progress = on_progress
+        
+        self.config = get_config()
+        self.logger = get_logger()
+        self.grok = GrokAutomation(browser)
+        self.prompt_gen = PromptGenerator()
+        self.video_processor = get_video_processor()
+        
+        self._running = False
+        self._stop_event = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+    
+    def start(self, mode: str = "generate", folder: str = None, batch_count: int = 10):
+        """
+        Start video generation.
+        
+        Args:
+            mode: "generate" (create new images) or "folder" (use existing images)
+            folder: Folder path for mode="folder"
+            batch_count: Number of videos to create
+        """
+        if self._running:
+            self.logger.warning("Video generator đang chạy")
+            return
+        
+        self._stop_event.clear()
+        self._running = True
+        
+        self._thread = threading.Thread(
+            target=self._generation_loop,
+            args=(mode, folder, batch_count),
+            daemon=True
+        )
+        self._thread.start()
+    
+    def stop(self):
+        """Stop video generation."""
+        self._stop_event.set()
+        self.logger.info("Đang dừng video generator...")
+    
+    def is_running(self) -> bool:
+        """Check if generator is running."""
+        return self._running
+    
+    def _report_progress(self, current: int, total: int, status: str):
+        """Report progress via callback."""
+        if self.on_progress:
+            try:
+                self.on_progress(current, total, status)
+            except Exception as e:
+                self.logger.error(f"Lỗi callback progress: {e}")
+    
+    def _generation_loop(self, mode: str, folder: str, batch_count: int):
+        """Main generation loop."""
+        try:
+            self.logger.info(f"Bắt đầu tạo {batch_count} video (mode: {mode})")
+            self._report_progress(0, batch_count, "Đang khởi tạo...")
+            
+            # Setup directories
+            videos_dir = Path(self.config.get("videos_dir", "./videos"))
+            temp_dir = videos_dir / "temp"
+            videos_dir.mkdir(parents=True, exist_ok=True)
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Get images list for folder mode
+            image_list = []
+            if mode == "folder" and folder:
+                folder_path = Path(folder)
+                if folder_path.exists():
+                    image_list = list(folder_path.glob("*.jpg")) + list(folder_path.glob("*.jpeg")) + list(folder_path.glob("*.png"))
+                    self.logger.info(f"Tìm thấy {len(image_list)} ảnh trong thư mục")
+            
+            completed = 0
+            
+            for i in range(batch_count):
+                if self._stop_event.is_set():
+                    self.logger.info("Đã dừng theo yêu cầu")
+                    break
+                
+                self.logger.info(f"===== Video {i + 1}/{batch_count} =====")
+                self._report_progress(i, batch_count, f"Đang tạo video {i + 1}/{batch_count}")
+                
+                try:
+                    # Generate prompts
+                    self._report_progress(i, batch_count, "Đang tạo prompt AI...")
+                    prompts = self.prompt_gen.generate_prompts()
+                    
+                    if not prompts:
+                        self.logger.error("Không thể tạo prompt, bỏ qua video này")
+                        continue
+                    
+                    image_prompt = prompts.get("image_prompt", "")
+                    video1_prompt = prompts.get("video1_prompt", "")
+                    video2_prompt = prompts.get("video2_prompt", "")
+                    
+                    # Determine source image
+                    if mode == "folder" and image_list:
+                        # Use image from folder
+                        if i < len(image_list):
+                            source_image = str(image_list[i])
+                        else:
+                            # Cycle through images if batch_count > image count
+                            source_image = str(image_list[i % len(image_list)])
+                        self.logger.info(f"Sử dụng ảnh: {Path(source_image).name}")
+                    else:
+                        # Generate new image
+                        self._report_progress(i, batch_count, "Đang tạo ảnh nguồn...")
+                        source_image = self._generate_source_image(image_prompt, temp_dir)
+                        
+                        if not source_image:
+                            self.logger.error("Không thể tạo ảnh nguồn, bỏ qua video này")
+                            continue
+                    
+                    # Create Video 1
+                    self._report_progress(i, batch_count, "Đang tạo video 1/2...")
+                    video1_path = temp_dir / f"video1_{i}.mp4"
+                    
+                    if not self._create_video(source_image, video1_prompt, str(video1_path)):
+                        self.logger.error("Không thể tạo video 1, bỏ qua")
+                        continue
+                    
+                    if self._stop_event.is_set():
+                        break
+                    
+                    # Extract last frame from Video 1
+                    self._report_progress(i, batch_count, "Đang trích xuất frame cuối...")
+                    last_frame_path = temp_dir / f"last_frame_{i}.jpg"
+                    
+                    if not self.video_processor.extract_last_frame(str(video1_path), str(last_frame_path)):
+                        self.logger.error("Không thể trích xuất frame cuối, bỏ qua")
+                        continue
+                    
+                    # Create Video 2 from last frame
+                    self._report_progress(i, batch_count, "Đang tạo video 2/2...")
+                    video2_path = temp_dir / f"video2_{i}.mp4"
+                    video2_full_prompt = self.VIDEO2_PREFIX + video2_prompt
+                    
+                    if not self._create_video(str(last_frame_path), video2_full_prompt, str(video2_path)):
+                        self.logger.error("Không thể tạo video 2, bỏ qua")
+                        continue
+                    
+                    if self._stop_event.is_set():
+                        break
+                    
+                    # Concatenate videos
+                    self._report_progress(i, batch_count, "Đang ghép video...")
+                    timestamp = datetime.now().strftime("%d-%m_%H-%M-%S")
+                    final_video = videos_dir / f"{timestamp}_{i + 1:03d}.mp4"
+                    
+                    if self.video_processor.concat_videos(str(video1_path), str(video2_path), str(final_video)):
+                        completed += 1
+                        self.logger.success(f"Đã tạo video hoàn chỉnh: {final_video.name}")
+                    else:
+                        self.logger.error("Không thể ghép video")
+                    
+                    # Cleanup temp files for this iteration
+                    self._cleanup_temp_files([video1_path, video2_path, last_frame_path])
+                    
+                    # Small delay between videos
+                    time.sleep(2)
+                    
+                except Exception as e:
+                    self.logger.error(f"Lỗi tạo video {i + 1}: {e}")
+                    continue
+            
+            self.logger.success(f"Hoàn thành! Đã tạo {completed}/{batch_count} video")
+            self._report_progress(batch_count, batch_count, f"Hoàn thành: {completed}/{batch_count} video")
+            
+        except Exception as e:
+            self.logger.error(f"Lỗi trong quá trình tạo video: {e}")
+            self._report_progress(0, batch_count, f"Lỗi: {e}")
+        finally:
+            self._running = False
+    
+    def _generate_source_image(self, image_prompt: str, temp_dir: Path) -> Optional[str]:
+        """
+        Generate source image using Grok Imagine.
+        
+        Returns:
+            Path to downloaded image or None
+        """
+        try:
+            # Clear any existing input
+            self.grok.clear_prompt_input()
+            time.sleep(0.5)
+            
+            # Enter image prompt
+            if not self.grok.enter_prompt(image_prompt):
+                return None
+            
+            # Get initial image count
+            initial_count = self.grok.count_current_images()
+            
+            # Submit prompt
+            if not self.grok.submit_prompt():
+                return None
+            
+            # Wait for generation
+            result = self.grok.wait_for_generation_complete(initial_count)
+            
+            if not result:
+                return None
+            
+            # Check for rate limit
+            if isinstance(result, tuple) and result[1] == "rate_limit":
+                self.logger.warning("Rate limit đạt khi tạo ảnh")
+                return None
+            
+            # Download first image
+            timestamp = datetime.now().strftime("%d-%m_%H-%M-%S")
+            image_path = temp_dir / f"source_{timestamp}.jpg"
+            
+            if self.grok.get_first_image_from_batch(str(image_path)):
+                self.logger.success(f"Đã tạo ảnh nguồn: {image_path.name}")
+                return str(image_path)
+            
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Lỗi tạo ảnh nguồn: {e}")
+            return None
+    
+    def _create_video(self, image_path: str, prompt: str, output_path: str) -> bool:
+        """
+        Create a single 6s video from image + prompt.
+        
+        Flow:
+        1. Navigate to Imagine
+        2. Upload image → Grok auto-generates first video
+        3. Wait for first video to complete
+        4. Enter custom prompt
+        5. Wait for custom video to complete
+        6. Download video
+        
+        Args:
+            image_path: Source image path
+            prompt: Video prompt
+            output_path: Where to save video
+            
+        Returns:
+            True if successful
+        """
+        try:
+            # Navigate to Imagine page first
+            self.grok.navigate_to_imagine()
+            time.sleep(2)
+            
+            # Upload image (this will redirect to video creation page)
+            if not self.grok.upload_image(image_path):
+                self.logger.error("Không thể upload ảnh")
+                return False
+            
+            # Wait for video creation page to load
+            if not self.grok.wait_for_video_page(timeout=30):
+                self.logger.error("Trang tạo video không tải được")
+                return False
+            
+            # Make sure Video mode is selected (click film icon)
+            self.grok.click_video_mode()
+            time.sleep(1)
+            
+            # Wait for Grok's automatic first video generation to complete
+            self.logger.info("Đang chờ video tự động tạo...")
+            if not self.grok.wait_for_initial_video():
+                self.logger.error("Video tự động không được tạo")
+                return False
+            
+            # Now we can enter our custom prompt
+            time.sleep(1)
+            
+            # Enter video prompt into textarea
+            if not self.grok.enter_video_prompt(prompt):
+                self.logger.error("Không thể nhập prompt video")
+                return False
+            
+            # Submit prompt to generate new video with our prompt
+            if not self.grok.submit_video_prompt():
+                self.logger.error("Không thể gửi prompt")
+                return False
+            
+            # Wait for our custom video to be generated
+            video_url = self.grok.wait_for_video_generation()
+            
+            if not video_url:
+                self.logger.error("Video không được tạo")
+                return False
+            
+            # Download video
+            if not self.grok.download_video_to_path(video_url, output_path):
+                self.logger.error("Không thể tải video")
+                return False
+            
+            # Go back to Imagine page for next operation
+            self.grok.go_back_to_imagine()
+            time.sleep(1)
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Lỗi tạo video: {e}")
+            return False
+    
+    def _cleanup_temp_files(self, files: list):
+        """Clean up temporary files."""
+        for file_path in files:
+            try:
+                path = Path(file_path)
+                if path.exists():
+                    path.unlink()
+            except Exception:
+                pass

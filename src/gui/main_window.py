@@ -27,6 +27,7 @@ class MainWindow:
         self._is_generating = False
         self._login_browser = None
         self._image_generator = None
+        self._video_generator = None
         
         # Create main window
         self.root = ttk.Window(
@@ -247,8 +248,46 @@ class MainWindow:
     
     def _start_video_generation(self, settings: dict):
         """Start video generation workflow."""
-        # TODO: Implement video generation
-        self.logger.info("Video generation chưa được implement")
+        from ..video_generator import VideoGenerator
+        
+        # Stop existing generator if running
+        if hasattr(self, '_video_generator') and self._video_generator and self._video_generator.is_running():
+            self.logger.warning("Đang chạy, dừng trước...")
+            self._video_generator.stop()
+            return
+        
+        # Create and start generator
+        self._video_generator = VideoGenerator(
+            browser=self._login_browser,
+            on_progress=self._on_video_progress
+        )
+        
+        mode = settings.get("mode", "generate")
+        folder = settings.get("folder", "")
+        batch_count = settings.get("batch_size", 10)
+        
+        self._video_generator.start(mode=mode, folder=folder, batch_count=batch_count)
+    
+    def _on_video_progress(self, current: int, total: int, status: str):
+        """Handle progress updates from video generator."""
+        # Update UI in main thread
+        self.root.after(0, lambda: self._update_video_progress_ui(current, total, status))
+    
+    def _update_video_progress_ui(self, current: int, total: int, status: str):
+        """Update video progress in UI (must be called from main thread)."""
+        progress_text = f"{status} ({current}/{total})"
+        self._status_label.configure(text=progress_text)
+        
+        # Update progress bar in video tab
+        if hasattr(self, 'video_tab'):
+            self.video_tab.update_progress(current, total)
+            self.video_tab.update_status(status)
+            
+            # Check if complete
+            if current >= total and total > 0:
+                self.video_tab.on_complete()
+                self._is_generating = False
+                self._update_button_states()
     
     def _on_generation_progress(self, current: int, total: int, status: str):
         """Handle progress updates from generator."""
@@ -272,6 +311,10 @@ class MainWindow:
         # Stop image generator if running
         if self._image_generator and self._image_generator.is_running():
             self._image_generator.stop()
+        
+        # Stop video generator if running
+        if hasattr(self, '_video_generator') and self._video_generator and self._video_generator.is_running():
+            self._video_generator.stop()
         
         # Reset generating state
         self._is_generating = False

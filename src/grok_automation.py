@@ -30,6 +30,30 @@ class GrokAutomation:
     GENERATED_IMAGE = "img[src*='imagine-public']"
     GENERATED_VIDEO = "video[src*='imagine-public']"
     
+    # Upload selectors (language-independent - based on structure, not text)
+    UPLOAD_BTN = "button:has(svg.lucide-upload)"
+    FILE_INPUT = "input[type='file'][accept='image/*']"
+    
+    # Media result selectors
+    MASONRY_LIST = "div[role='list']"
+    MEDIA_ITEM = "div[role='listitem']"
+    VIDEO_ELEMENT = "div[role='listitem'] video"
+    IMAGE_ELEMENT = "div[role='listitem'] img"
+    
+    # Video creation page selectors (after uploading image)
+    VIDEO_PROMPT_TEXTAREA = "article textarea"
+    VIDEO_MODE_BTN = "button:has(svg.lucide-film)"
+    IMAGE_MODE_BTN = "button:has(svg.lucide-image)"
+    DOWNLOAD_BTN = "button:has(svg.lucide-download)"
+    BACK_BTN = "button:has(svg.lucide-arrow-left)"
+    VIDEO_ARTICLE = "article"
+    VIDEO_CONTAINER = "article .group.relative"
+    
+    # Video generation status indicators
+    TEXTAREA_LOADING = "article textarea.animate-pulse-lg"
+    IMAGE_BLURRED = "article img.blur-sm, article img.blur-md"
+    VIDEO_IN_ARTICLE = "article video"
+    
     def __init__(self, browser_manager: BrowserManager):
         """
         Initialize Grok automation.
@@ -585,3 +609,569 @@ class GrokAutomation:
     def refresh_driver(self):
         """Refresh driver reference after browser restart."""
         self.driver = self.browser.get_driver()
+
+    # ==================== VIDEO GENERATION METHODS ====================
+    
+    def upload_image(self, image_path: str) -> bool:
+        """
+        Upload an image for video generation.
+        
+        Args:
+            image_path: Path to the image file
+            
+        Returns:
+            True if upload successful
+        """
+        if not self.driver:
+            self.logger.error("Trình duyệt chưa khởi động")
+            return False
+        
+        image_path = Path(image_path)
+        if not image_path.exists():
+            self.logger.error(f"Không tìm thấy ảnh: {image_path}")
+            return False
+        
+        try:
+            timeout = self.config.get("timeout_seconds", 60)
+            
+            # Find the hidden file input and send file path directly
+            # This bypasses the file dialog completely
+            file_input = WebDriverWait(self.driver, timeout).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, self.FILE_INPUT))
+            )
+            
+            # Send the absolute file path to the input
+            file_input.send_keys(str(image_path.absolute()))
+            
+            self.logger.success(f"Đã upload ảnh: {image_path.name}")
+            
+            # Wait a moment for upload to process
+            time.sleep(2)
+            
+            return True
+            
+        except TimeoutException:
+            self.logger.error("Hết thời gian chờ tìm input upload")
+            return False
+        except Exception as e:
+            self.logger.error(f"Không thể upload ảnh: {e}")
+            return False
+    
+    def wait_for_video_complete(self, timeout: int = None) -> Optional[str]:
+        """
+        Wait for video generation to complete and return the video URL.
+        
+        Args:
+            timeout: Maximum wait time in seconds
+            
+        Returns:
+            Video URL if successful, None if failed
+        """
+        if timeout is None:
+            timeout = self.config.get("timeout_seconds", 180)  # Videos take longer
+        
+        self.logger.info(f"Đang chờ tạo video (timeout: {timeout}s)...")
+        
+        start_time = time.time()
+        was_generating = False
+        last_log_time = 0
+        
+        while time.time() - start_time < timeout:
+            try:
+                is_gen = self.is_generating()
+                has_invisible = self.has_invisible_elements()
+                has_placeholders = self.has_generating_placeholders()
+                
+                # Debug log every 10 seconds
+                elapsed = int(time.time() - start_time)
+                if elapsed > 0 and elapsed % 10 == 0 and elapsed != last_log_time:
+                    last_log_time = elapsed
+                    self.logger.debug(f"[{elapsed}s] Generating={is_gen}, Invisible={has_invisible}, Placeholders={has_placeholders}")
+                
+                # Track if generation has started
+                if is_gen or has_invisible or has_placeholders:
+                    if not was_generating:
+                        self.logger.info("Phát hiện đang tạo video...")
+                    was_generating = True
+                
+                # Check for rate limit
+                if self.check_rate_limit():
+                    self.logger.warning("Phát hiện rate limit khi tạo video")
+                    return None
+                
+                # Check for completed video
+                videos = self.driver.find_elements(By.CSS_SELECTOR, self.VIDEO_ELEMENT)
+                
+                for video in videos:
+                    # Check video source
+                    src = video.get_attribute("src") or ""
+                    
+                    # Also check source element inside video tag
+                    if not src:
+                        try:
+                            source = video.find_element(By.TAG_NAME, "source")
+                            src = source.get_attribute("src") or ""
+                        except:
+                            pass
+                    
+                    if src and "imagine-public" in src and ".mp4" in src:
+                        # Wait a bit to ensure video is fully loaded
+                        time.sleep(2)
+                        self.logger.success("Video đã sẵn sàng")
+                        return src
+                
+                # Check if generation completed without video (error case)
+                if was_generating and not is_gen and not has_invisible and not has_placeholders:
+                    # Check one more time for video
+                    time.sleep(2)
+                    videos = self.driver.find_elements(By.CSS_SELECTOR, self.VIDEO_ELEMENT)
+                    for video in videos:
+                        src = video.get_attribute("src") or ""
+                        if not src:
+                            try:
+                                source = video.find_element(By.TAG_NAME, "source")
+                                src = source.get_attribute("src") or ""
+                            except:
+                                pass
+                        if src and "imagine-public" in src:
+                            self.logger.success("Video đã sẵn sàng")
+                            return src
+                    
+                    self.logger.error("Tạo video thất bại hoặc lỗi")
+                    return None
+                    
+            except Exception as e:
+                self.logger.debug(f"Lỗi khi kiểm tra video: {e}")
+            
+            time.sleep(2)
+        
+        self.logger.error("Hết thời gian chờ tạo video")
+        return None
+    
+    def get_latest_video_url(self) -> Optional[str]:
+        """
+        Get the URL of the latest/newest video in the list.
+        
+        Returns:
+            Video URL or None
+        """
+        try:
+            # Get all video elements
+            videos = self.driver.find_elements(By.CSS_SELECTOR, self.VIDEO_ELEMENT)
+            
+            for video in videos:
+                src = video.get_attribute("src") or ""
+                
+                # Check source element if src is empty
+                if not src:
+                    try:
+                        source = video.find_element(By.TAG_NAME, "source")
+                        src = source.get_attribute("src") or ""
+                    except:
+                        pass
+                
+                if src and "imagine-public" in src and ".mp4" in src:
+                    return src
+            
+            self.logger.debug("Không tìm thấy video")
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Không thể lấy URL video: {e}")
+            return None
+    
+    def download_video_to_path(self, url: str, output_path: str) -> bool:
+        """
+        Download video from URL to specific path.
+        
+        Args:
+            url: Video URL
+            output_path: Full path to save video
+            
+        Returns:
+            True if successful
+        """
+        try:
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            self.logger.info(f"Đang tải video: {output_path.name}...")
+            
+            response = requests.get(url, timeout=180, stream=True)
+            
+            if response.status_code == 200:
+                total_size = int(response.headers.get('content-length', 0))
+                downloaded = 0
+                
+                with open(output_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        
+                        # Log progress every 1MB
+                        if total_size > 0 and downloaded % (1024 * 1024) == 0:
+                            percent = (downloaded / total_size) * 100
+                            self.logger.debug(f"Tải video: {percent:.1f}%")
+                
+                self.logger.success(f"Đã lưu video: {output_path}")
+                return True
+            else:
+                self.logger.error(f"Không thể tải video: HTTP {response.status_code}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Không thể tải video: {e}")
+            return False
+    
+    def clear_prompt_input(self) -> bool:
+        """Clear the prompt input field."""
+        try:
+            editor = self.driver.find_element(By.CSS_SELECTOR, self.PROMPT_INPUT)
+            
+            # Clear via JavaScript
+            self.driver.execute_script("""
+                const editor = arguments[0];
+                editor.innerHTML = '<p></p>';
+                
+                // Trigger input event
+                const event = new InputEvent('input', {
+                    bubbles: true,
+                    cancelable: true,
+                });
+                editor.dispatchEvent(event);
+            """, editor)
+            
+            return True
+        except Exception as e:
+            self.logger.debug(f"Không thể xóa prompt: {e}")
+            return False
+    
+    def get_first_image_from_batch(self, output_path: str) -> bool:
+        """
+        Download the first image from the latest batch.
+        
+        Args:
+            output_path: Path to save the image
+            
+        Returns:
+            True if successful
+        """
+        try:
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Find images in the latest section
+            sections = self.driver.find_elements(By.CSS_SELECTOR, "div[id^='imagine-masonry-section-']")
+            
+            if sections:
+                latest_section = sections[-1]
+                images = latest_section.find_elements(By.CSS_SELECTOR, "div[role='listitem'] img")
+            else:
+                images = self.driver.find_elements(By.CSS_SELECTOR, "div[role='listitem'] img")
+            
+            for img in images:
+                src = img.get_attribute("src") or ""
+                
+                # Skip PNG placeholders
+                if src.startswith("data:image/png"):
+                    continue
+                
+                # Save Base64 JPEG
+                if src.startswith("data:image/jpeg"):
+                    return self._save_base64_image(src, output_path.parent, output_path.name)
+                
+                # Download from URL
+                if "imagine-public" in src and "_thumbnail" not in src:
+                    return self._download_single_image(src, output_path.parent, output_path.name)
+            
+            self.logger.error("Không tìm thấy ảnh để tải")
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"Không thể tải ảnh đầu tiên: {e}")
+            return False
+
+    # ==================== VIDEO PAGE METHODS (after upload) ====================
+    
+    def wait_for_video_page(self, timeout: int = 30) -> bool:
+        """
+        Wait for video creation page to load after uploading image.
+        
+        Returns:
+            True if page loaded successfully
+        """
+        try:
+            # Wait for article container to appear
+            WebDriverWait(self.driver, timeout).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, self.VIDEO_ARTICLE))
+            )
+            
+            # Wait for textarea to be present
+            WebDriverWait(self.driver, timeout).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, self.VIDEO_PROMPT_TEXTAREA))
+            )
+            
+            self.logger.info("Trang tạo video đã sẵn sàng")
+            return True
+            
+        except TimeoutException:
+            self.logger.error("Hết thời gian chờ trang tạo video")
+            return False
+        except Exception as e:
+            self.logger.error(f"Lỗi khi chờ trang video: {e}")
+            return False
+    
+    def is_video_generating(self) -> bool:
+        """
+        Check if video is currently being generated.
+        
+        Indicators:
+        - Textarea has animate-pulse-lg class
+        - Images are blurred (blur-sm, blur-md)
+        - No video element present yet
+        
+        Returns:
+            True if video is generating
+        """
+        try:
+            # Check for pulsing textarea (loading indicator)
+            pulsing = self.driver.find_elements(By.CSS_SELECTOR, self.TEXTAREA_LOADING)
+            if pulsing:
+                return True
+            
+            # Check for blurred images
+            blurred = self.driver.find_elements(By.CSS_SELECTOR, self.IMAGE_BLURRED)
+            if blurred:
+                return True
+            
+            return False
+            
+        except Exception:
+            return False
+    
+    def wait_for_initial_video(self, timeout: int = None) -> bool:
+        """
+        Wait for the initial video to be generated after uploading image.
+        Grok automatically starts generating a video when you upload an image.
+        
+        Args:
+            timeout: Maximum wait time
+            
+        Returns:
+            True if video generation completed
+        """
+        if timeout is None:
+            timeout = self.config.get("timeout_seconds", 180)
+        
+        self.logger.info(f"Đang chờ video tự động tạo (timeout: {timeout}s)...")
+        
+        start_time = time.time()
+        last_log_time = 0
+        was_generating = False
+        
+        while time.time() - start_time < timeout:
+            try:
+                # Check for rate limit
+                if self.check_rate_limit():
+                    self.logger.warning("Phát hiện rate limit")
+                    return False
+                
+                is_generating = self.is_video_generating()
+                
+                if is_generating:
+                    was_generating = True
+                
+                # Debug log every 15 seconds
+                elapsed = int(time.time() - start_time)
+                if elapsed > 0 and elapsed % 15 == 0 and elapsed != last_log_time:
+                    last_log_time = elapsed
+                    self.logger.debug(f"[{elapsed}s] Đang tạo video... (generating={is_generating})")
+                
+                # Check if generation completed
+                if was_generating and not is_generating:
+                    # Verify textarea is no longer pulsing
+                    time.sleep(1)
+                    if not self.is_video_generating():
+                        self.logger.success("Video tự động đã tạo xong")
+                        return True
+                
+                # Also check if video element appeared
+                videos = self.driver.find_elements(By.CSS_SELECTOR, self.VIDEO_IN_ARTICLE)
+                for video in videos:
+                    src = video.get_attribute("src") or ""
+                    if not src:
+                        try:
+                            source = video.find_element(By.TAG_NAME, "source")
+                            src = source.get_attribute("src") or ""
+                        except:
+                            pass
+                    
+                    if src and ("imagine-public" in src or "assets.grok.com" in src):
+                        self.logger.success("Video tự động đã tạo xong")
+                        return True
+                        
+            except Exception as e:
+                self.logger.debug(f"Lỗi khi kiểm tra: {e}")
+            
+            time.sleep(2)
+        
+        self.logger.error("Hết thời gian chờ video tự động")
+        return False
+    
+    def enter_video_prompt(self, prompt: str) -> bool:
+        """
+        Enter prompt into the video creation textarea.
+        
+        Args:
+            prompt: The video prompt text
+            
+        Returns:
+            True if successful
+        """
+        try:
+            timeout = self.config.get("timeout_seconds", 60)
+            
+            # Find textarea
+            textarea = WebDriverWait(self.driver, timeout).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, self.VIDEO_PROMPT_TEXTAREA))
+            )
+            
+            # Clear and enter prompt
+            textarea.clear()
+            textarea.send_keys(prompt)
+            
+            self.logger.info("Đã nhập prompt video")
+            return True
+            
+        except TimeoutException:
+            self.logger.error("Hết thời gian chờ textarea video")
+            return False
+        except Exception as e:
+            self.logger.error(f"Không thể nhập prompt video: {e}")
+            return False
+    
+    def submit_video_prompt(self) -> bool:
+        """
+        Submit the video prompt by pressing Enter or clicking submit button.
+        
+        Returns:
+            True if successful
+        """
+        try:
+            from selenium.webdriver.common.keys import Keys
+            
+            # Find textarea and press Enter
+            textarea = self.driver.find_element(By.CSS_SELECTOR, self.VIDEO_PROMPT_TEXTAREA)
+            textarea.send_keys(Keys.RETURN)
+            
+            self.logger.info("Đã gửi prompt video")
+            return True
+            
+        except Exception as e:
+            # Fallback: try clicking submit button if exists
+            try:
+                submit_btn = self.driver.find_element(By.CSS_SELECTOR, "article button[type='submit']")
+                submit_btn.click()
+                self.logger.info("Đã click nút gửi video")
+                return True
+            except:
+                pass
+            
+            self.logger.error(f"Không thể gửi prompt video: {e}")
+            return False
+    
+    def wait_for_video_generation(self, timeout: int = None) -> Optional[str]:
+        """
+        Wait for video to be generated on the video creation page.
+        
+        Args:
+            timeout: Maximum wait time
+            
+        Returns:
+            Video URL if successful, None if failed
+        """
+        if timeout is None:
+            timeout = self.config.get("timeout_seconds", 180)
+        
+        self.logger.info(f"Đang chờ video được tạo (timeout: {timeout}s)...")
+        
+        start_time = time.time()
+        last_log_time = 0
+        
+        while time.time() - start_time < timeout:
+            try:
+                # Check for rate limit
+                if self.check_rate_limit():
+                    self.logger.warning("Phát hiện rate limit khi tạo video")
+                    return None
+                
+                # Look for video element in the article
+                videos = self.driver.find_elements(By.CSS_SELECTOR, "article video")
+                
+                for video in videos:
+                    src = video.get_attribute("src") or ""
+                    
+                    # Check source element
+                    if not src:
+                        try:
+                            source = video.find_element(By.TAG_NAME, "source")
+                            src = source.get_attribute("src") or ""
+                        except:
+                            pass
+                    
+                    if src and ("imagine-public" in src or "assets.grok.com" in src) and ".mp4" in src:
+                        time.sleep(2)  # Wait for video to fully load
+                        self.logger.success("Video đã được tạo")
+                        return src
+                
+                # Debug log
+                elapsed = int(time.time() - start_time)
+                if elapsed > 0 and elapsed % 15 == 0 and elapsed != last_log_time:
+                    last_log_time = elapsed
+                    self.logger.debug(f"[{elapsed}s] Đang chờ video...")
+                    
+            except Exception as e:
+                self.logger.debug(f"Lỗi khi kiểm tra video: {e}")
+            
+            time.sleep(2)
+        
+        self.logger.error("Hết thời gian chờ tạo video")
+        return None
+    
+    def click_video_mode(self) -> bool:
+        """
+        Click the Video mode button (film icon) on the video creation page.
+        
+        Returns:
+            True if successful
+        """
+        try:
+            video_btn = WebDriverWait(self.driver, 10).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, self.VIDEO_MODE_BTN))
+            )
+            video_btn.click()
+            self.logger.debug("Đã chọn chế độ Video")
+            time.sleep(0.5)
+            return True
+        except Exception as e:
+            self.logger.debug(f"Không thể click nút Video: {e}")
+            return False
+    
+    def go_back_to_imagine(self) -> bool:
+        """
+        Click back button to return to Imagine gallery.
+        
+        Returns:
+            True if successful
+        """
+        try:
+            back_btn = self.driver.find_element(By.CSS_SELECTOR, self.BACK_BTN)
+            back_btn.click()
+            time.sleep(1)
+            self.logger.debug("Đã quay lại trang Imagine")
+            return True
+        except Exception as e:
+            self.logger.debug(f"Không thể quay lại: {e}")
+            # Fallback: navigate directly
+            self.navigate_to_imagine()
+            return True
