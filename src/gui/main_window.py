@@ -22,6 +22,12 @@ class MainWindow:
         """Initialize main window."""
         self.config = get_config()
         
+        # State tracking
+        self._browser_opened = False
+        self._is_generating = False
+        self._login_browser = None
+        self._image_generator = None
+        
         # Create main window
         self.root = ttk.Window(
             title="Grok Imagine - Tự Động Hoá Tạo Ảnh/Video",
@@ -129,7 +135,8 @@ class MainWindow:
             login_frame,
             text="Xác Nhận Đã Đăng Nhập",
             bootstyle="success",
-            command=self._on_confirm_login
+            command=self._on_confirm_login,
+            state=DISABLED  # Disabled until browser is opened
         )
         self._confirm_btn.pack(fill=X)
         
@@ -154,24 +161,60 @@ class MainWindow:
             foreground="gray"
         )
         version_label.pack(side=RIGHT)
+        
+        # Initialize button states
+        self._update_button_states()
+    
+    def _update_button_states(self):
+        """Update all button states based on current app state."""
+        # Browser not opened yet
+        if not self._browser_opened:
+            self._login_btn.configure(state=NORMAL)
+            self._confirm_btn.configure(state=DISABLED)
+            self.image_tab.set_buttons_enabled(False)
+            self.video_tab.set_buttons_enabled(False)
+            return
+        
+        # Currently generating
+        if self._is_generating:
+            self._login_btn.configure(state=DISABLED)
+            self._confirm_btn.configure(state=DISABLED)
+            self.image_tab.set_buttons_enabled(False, allow_stop=True)
+            self.video_tab.set_buttons_enabled(False, allow_stop=True)
+            return
+        
+        # Browser opened, not generating
+        self._login_btn.configure(state=DISABLED)  # Don't allow opening another browser
+        self._confirm_btn.configure(state=NORMAL)
+        self.image_tab.set_buttons_enabled(True)
+        self.video_tab.set_buttons_enabled(True)
     
     def _on_start(self, mode: str, settings: dict):
         """Handle start button from tabs."""
-        self.logger.info(f"Đang bắt đầu tạo {mode} với cài đặt: {settings}")
-        self._status_label.configure(text=f"Đang tạo {mode}...")
+        # Prevent starting if already generating
+        if self._is_generating:
+            self.logger.warning("Đang chạy, không thể bắt đầu tác vụ khác!")
+            return
         
         # Check if browser is open
-        if not (hasattr(self, '_login_browser') and self._login_browser and self._login_browser.is_running()):
+        if not self._browser_opened or not self._login_browser or not self._login_browser.is_running():
             self.logger.error("Trình duyệt chưa mở. Hãy nhấn 'Mở Trình Duyệt Để Đăng Nhập' trước!")
             self._status_label.configure(text="Lỗi: Chưa mở trình duyệt")
             return
+        
+        self.logger.info(f"Đang bắt đầu tạo {mode} với cài đặt: {settings}")
+        self._status_label.configure(text=f"Đang tạo {mode}...")
+        
+        # Mark as generating and update buttons
+        self._is_generating = True
+        self._update_button_states()
         
         # Navigate to Grok Imagine
         self._login_browser.navigate("https://grok.com/imagine")
         
         # Zoom browser to 75%
-        self._login_browser.set_zoom(75)
-        self.logger.info("Đã zoom trình duyệt xuống 75%")
+        self._login_browser.set_zoom(25)
+        self.logger.info("Đã zoom trình duyệt xuống 25%")
         
         if mode == "anh":
             self._start_image_generation(settings)
@@ -195,9 +238,8 @@ class MainWindow:
         )
         
         batch_count = settings.get("batch_count", 10)
-        images_per_batch = settings.get("images_per_download", 4)
         
-        self._image_generator.start(batch_count=batch_count, images_per_batch=images_per_batch)
+        self._image_generator.start(batch_count=batch_count)
     
     def _start_video_generation(self, settings: dict):
         """Start video generation workflow."""
@@ -224,8 +266,12 @@ class MainWindow:
         self._status_label.configure(text="Đang dừng...")
         
         # Stop image generator if running
-        if hasattr(self, '_image_generator') and self._image_generator and self._image_generator.is_running():
+        if self._image_generator and self._image_generator.is_running():
             self._image_generator.stop()
+        
+        # Reset generating state
+        self._is_generating = False
+        self._update_button_states()
         
         self._status_label.configure(text="Đã dừng")
     
@@ -238,6 +284,8 @@ class MainWindow:
         # Store browser instance for later use
         self._login_browser = BrowserManager(thread_id=1)
         if self._login_browser.start():
+            self._browser_opened = True
+            self._update_button_states()
             self.logger.info("Trình duyệt đã mở. Hãy đăng nhập Grok thủ công.")
             self.logger.info("Sau khi đăng nhập xong, nhấn 'Xác Nhận Đã Đăng Nhập'")
     

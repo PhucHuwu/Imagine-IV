@@ -171,8 +171,44 @@ class BrowserManager:
             return False
     
     def set_zoom(self, zoom_percent: int = 100):
-        """Set page zoom level."""
-        if self.driver:
+        """Set page zoom level using keyboard shortcut (Ctrl+/-).
+        
+        Args:
+            zoom_percent: Target zoom level (e.g., 75 for 75%)
+        """
+        if not self.driver:
+            return
+            
+        try:
+            from selenium.webdriver.common.keys import Keys
+            from selenium.webdriver.common.action_chains import ActionChains
+            from selenium.webdriver.common.by import By
+            
+            # First reset to 100% with Ctrl+0
+            body = self.driver.find_element(By.TAG_NAME, "body")
+            body.send_keys(Keys.CONTROL + "0")
+            
+            # Calculate how many times to press Ctrl+- 
+            # Each Ctrl+- reduces by ~10-20% depending on Chrome
+            # 100 -> 90 -> 80 -> 75 -> 67 -> 50 ...
+            zoom_steps = {
+                100: 0,
+                90: 1,
+                80: 2,
+                75: 3,
+                67: 4,
+                50: 5,
+                33: 6,
+                25: 7
+            }
+            
+            steps = zoom_steps.get(zoom_percent, 3)  # Default to 75% (3 steps)
+            
+            for _ in range(steps):
+                body.send_keys(Keys.CONTROL + Keys.SUBTRACT)
+                
+        except Exception as e:
+            # Fallback to CSS zoom
             try:
                 self.driver.execute_script(f"document.body.style.zoom='{zoom_percent}%'")
             except Exception:

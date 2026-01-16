@@ -97,13 +97,105 @@ class PromptGenerator:
             "Content-Type": "application/json"
         }
         
+        # Add randomization to break repetitive patterns
+        import random
+        from datetime import datetime
+        
+        random_seed = random.randint(1000, 9999)
+        timestamp = datetime.now().strftime("%H%M%S")
+        
+        # Random style/theme variations to encourage diversity
+        styles = [
+            # Phong cách kinh điển & quyến rũ
+            "elegant and classy lingerie goddess",
+            "wild and untamed sex kitten",
+            "sweet and innocent but dangerously seductive",
+            "mysterious dark femme fatale",
+            "playful teasing little devil",
+            "confident dominant queen energy",
+            "shy but extremely horny",
+            "fierce and powerful dominatrix vibes",
+            "soft romantic bedroom eyes",
+            "naughty schoolgirl gone bad",
+            "mature experienced seductress",
+            "athletic toned gym bombshell",
+
+            # Phong cách nóng bỏng hơn, táo bạo
+            "slutty and proud of it",
+            "dripping wet and needy",
+            "cum-hungry bedroom stare",
+            "bound and begging",
+            "just-fucked messy hair glow",
+            "oiled up glistening skin",
+            "spread wide and shameless",
+            "choking hazard throat",
+            "dripping honey sweet & filthy",
+            "corrupted angel fallen from grace",
+            "high-class escort premium service",
+            "backseat car quickie energy",
+
+            # Roleplay & fantasy nặng đô
+            "bunny girl with very short tail",
+            "naughty nurse ready to examine",
+            "strict teacher punishment time",
+            "maid who doesn't clean at all",
+            "succubus ready to drain you",
+            "vampire queen blood & lust",
+            "catgirl in extreme heat",
+            "office slut after hours",
+            "cheerleader with no panties",
+            "bride on her last wild night",
+            "police officer frisking you hard",
+            "japanese gravure idol wet shirt",
+
+            # Aesthetic & mood đặc trưng
+            "neon cyberpunk strip club",
+            "gothic victorian dark erotica",
+            "vaporwave pastel lewd",
+            "luxury sugar baby aesthetic",
+            "y2k trashy hot mess",
+            "e-girl onlyfans teaser",
+            "softcore morning after glow",
+            "hardcore BDSM dungeon queen",
+            "glamour pornstar red carpet",
+            "tropical vacation sex on the beach",
+            "winter fireplace slow sensual",
+            "sweaty summer midnight hookup",
+        ]
+        
+        locations = [
+            "luxurious bedroom with silk sheets", "steamy bathroom with foggy mirror",
+            "beach cabana at sunset", "private pool with underwater lights",
+            "penthouse with city view at night", "studio with professional lighting",
+            "cozy living room by fireplace", "outdoor garden at golden hour",
+            "hotel room with mood lighting", "yacht deck under stars"
+        ]
+        
+        ethnicities = [
+            "Asian", "Caucasian", "Latina", "mixed-race", "Eastern European",
+            "Mediterranean", "Nordic", "Middle Eastern", "African", "South Asian"
+        ]
+        
+        chosen_style = random.choice(styles)
+        chosen_location = random.choice(locations)
+        chosen_ethnicity = random.choice(ethnicities)
+        
+        user_message = f"""Generate a completely NEW and UNIQUE set of prompts.
+        
+Random seed: {random_seed}-{timestamp}
+Style direction: {chosen_style}
+Location: {chosen_location}
+Ethnicity: {chosen_ethnicity}
+
+Make this generation DIFFERENT from any previous ones. Be creative and surprising!"""
+        
         payload = {
             "model": model,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": "Generate a new set of prompts."}
+                {"role": "user", "content": user_message}
             ],
-            "temperature": 0.9,
+            "temperature": 1.0,  # Increased for more randomness
             "max_tokens": 1000
         }
         

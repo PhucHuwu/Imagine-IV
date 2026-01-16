@@ -42,13 +42,12 @@ class ImageGenerator:
             except Exception:
                 pass
     
-    def start(self, batch_count: int, images_per_batch: int = 4) -> bool:
+    def start(self, batch_count: int) -> bool:
         """
         Start image generation.
         
         Args:
             batch_count: Number of batches to generate
-            images_per_batch: Number of images to download per batch
             
         Returns:
             True if started successfully
@@ -63,7 +62,7 @@ class ImageGenerator:
         # Run in separate thread
         thread = threading.Thread(
             target=self._generation_loop,
-            args=(batch_count, images_per_batch),
+            args=(batch_count,),
             daemon=True
         )
         thread.start()
@@ -79,7 +78,7 @@ class ImageGenerator:
         """Check if generation is running."""
         return self._running
     
-    def _generation_loop(self, batch_count: int, images_per_batch: int):
+    def _generation_loop(self, batch_count: int):
         """Main generation loop."""
         try:
             # Get output directory
@@ -96,6 +95,12 @@ class ImageGenerator:
             for batch_idx in range(batch_count):
                 if self._stop_requested:
                     self.logger.info("Đã dừng theo yêu cầu")
+                    break
+                
+                # Check for rate limit before proceeding
+                if self.grok.check_rate_limit():
+                    self.logger.error("Đã đạt rate limit - Dừng toàn bộ quá trình")
+                    self._stop_requested = True
                     break
                 
                 self._update_progress(batch_idx, batch_count, f"Batch {batch_idx + 1}/{batch_count}")
@@ -126,17 +131,31 @@ class ImageGenerator:
                     self.logger.error("Không thể gửi prompt, bỏ qua batch này")
                     continue
                 
-                # Wait for images
-                if not self.grok.wait_for_images(min_count=1):
+                # Không kiểm tra rate limit ở đây nữa - để wait_for_images xử lý
+                
+                # Wait for images (sẽ tự tải ảnh và xử lý rate limit)
+                result = self.grok.wait_for_images(min_count=1)
+                
+                # Xử lý kết quả: có thể là số ảnh, tuple (số ảnh, "rate_limit"), hoặc False
+                if isinstance(result, tuple):
+                    # Rate limit detected after downloading
+                    downloaded_count, status = result
+                    total_downloaded += downloaded_count
+                    if status == "rate_limit":
+                        self.logger.error("Đã đạt rate limit - Dừng toàn bộ quá trình")
+                        self._stop_requested = True
+                        break
+                elif isinstance(result, int):
+                    # Số ảnh đã tải
+                    total_downloaded += result
+                    if result == 0:
+                        self.logger.error("Không có ảnh nào được tạo, bỏ qua batch này")
+                        continue
+                elif not result:
                     self.logger.error("Không có ảnh nào được tạo, bỏ qua batch này")
                     continue
                 
-                # Get and download images
-                urls = self.grok.get_image_urls(count=images_per_batch)
-                if urls:
-                    saved = self.grok.download_images(urls, str(images_dir))
-                    total_downloaded += len(saved)
-                    self.logger.success(f"Đã tải {len(saved)} ảnh (tổng: {total_downloaded})")
+                # Ảnh đã được tải trong wait_for_images, không cần tải lại
                 
                 # Delay before next batch
                 if batch_idx < batch_count - 1 and not self._stop_requested:
@@ -147,7 +166,7 @@ class ImageGenerator:
                         time.sleep(1)
             
             self._update_progress(batch_count, batch_count, "Hoàn thành")
-            self.logger.success(f"Hoàn thành! Tổng cộng {total_downloaded} ảnh")
+            self.logger.success(f"Hoàn thành tất cả! Tổng cộng {total_downloaded} ảnh từ {batch_count} batch")
             
         except Exception as e:
             self.logger.error(f"Lỗi trong quá trình tạo ảnh: {e}")

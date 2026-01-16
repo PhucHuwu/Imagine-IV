@@ -155,10 +155,8 @@ class GrokAutomation:
 
     def wait_for_generation_complete(self, initial_count: int = 0, timeout: int = None) -> bool:
         """
-        Smart polling: wait for generation to complete using multiple signals:
-        1. Submit button state (is_generating)
-        2. Presence of .invisible placeholders
-        3. JPEG image count increase
+        Wait for generation to complete, then scan and download images.
+        Scans 5 times with 10s interval to ensure all images are captured.
         
         Args:
             initial_count: Number of images before submitting prompt
@@ -174,90 +172,163 @@ class GrokAutomation:
         
         start_time = time.time()
         was_generating = False
-        invisible_seen = False
         
         # Helper to generate filename
         def get_timestamp_filename(idx):
             timestamp = datetime.now().strftime("%d-%m_%H-%M-%S")
             return f"{timestamp}_{idx:03d}.jpg"
 
-        # Track processed images to prevent duplicates
+        # Track processed images to prevent duplicates (persists across all scans)
         processed_srcs = set()
         output_dir = Path(self.config.get("images_dir", "./images"))
         output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Wait for generation to start and complete
+        last_log_time = 0
+        rate_limit_detected = False
         
         while time.time() - start_time < timeout:
             try:
                 is_gen = self.is_generating()
                 has_invisible = self.has_invisible_elements()
                 has_placeholders = self.has_generating_placeholders()
+                current_count = self.count_current_images()
                 
-                # Incremental Download Logic
-                valid_images = self.driver.find_elements(By.CSS_SELECTOR, "div[role='listitem'] img")
-                current_count = 0
+                # Debug log every 5 seconds
+                elapsed = int(time.time() - start_time)
+                if elapsed > 0 and elapsed % 5 == 0 and elapsed != last_log_time:
+                    last_log_time = elapsed
+                    self.logger.debug(f"[{elapsed}s] Generating={is_gen}, Invisible={has_invisible}, Placeholders={has_placeholders}, Images={current_count}")
                 
-                for img in valid_images:
-                    src = img.get_attribute("src") or ""
-                    
-                    # Logic identifying COMPLETED images (same as count_current_images)
-                    is_valid_url = "imagine-public" in src and "_thumbnail" not in src
-                    is_valid_base64 = src.startswith("data:image/jpeg")
-                    
-                    if is_valid_url or is_valid_base64:
-                        current_count += 1
-                        
-                        # Use a hash or just the src content (if short enough) as key. 
-                        # Base64 can be long, but safe enough for checking unique strings in memory for one session.
-                        # For URLs, it's short.
-                        if src not in processed_srcs:
-                            self.logger.info(f"Phát hiện ảnh mới, đang tải xuống... ({current_count})")
-                            try:
-                                if is_valid_base64:
-                                    # Handle Base64
-                                    self._save_base64_image(src, output_dir, get_timestamp_filename(len(processed_srcs) + 1))
-                                else:
-                                    # Handle URL
-                                    self._download_single_image(src, output_dir, get_timestamp_filename(len(processed_srcs) + 1))
-                                
-                                processed_srcs.add(src)
-                                self.logger.success(f"Đã tải ảnh {len(processed_srcs)}")
-                            except Exception as dl_err:
-                                self.logger.error(f"Lỗi tải ảnh: {dl_err}")
-
-                # Debug status every 5 seconds
-                if int(time.time() - start_time) % 5 == 0:
-                    self.logger.debug(f"Status: Gen={is_gen}, Invis={has_invisible}, Placeholders={has_placeholders}, Count={current_count}/{initial_count} (Downloaded: {len(processed_srcs)})")
-
-                # Track states: considered generating if button disabled OR invisible items OR placeholder items
+                # Track states
                 if is_gen or has_invisible or has_placeholders:
                     if not was_generating:
                         self.logger.info("Phát hiện đang tạo ảnh...")
                     was_generating = True
                 
-                if has_invisible:
-                    invisible_seen = True
-
-                # Completion logic:
-                if was_generating and not is_gen and not has_invisible and not has_placeholders:
+                # Check if generation completed FIRST
+                # Điều kiện hoàn tất: không còn invisible, không còn placeholder, và có ảnh mới
+                if was_generating and not has_invisible and not has_placeholders and current_count > initial_count:
+                    self.logger.info("Tạo ảnh hoàn tất, bắt đầu quét và tải ảnh...")
+                    break
+                
+                # Check for rate limit AFTER checking completion
+                # Nếu ảnh chưa xong mà rate limit → dừng
+                if self.check_rate_limit():
+                    self.logger.warning("Phát hiện rate limit trong khi chờ tạo ảnh")
+                    # Kiểm tra xem có ảnh mới không, nếu có thì vẫn tải
                     if current_count > initial_count:
-                        # Double check stabilization
-                        time.sleep(2)
-                        final_count = self.count_current_images()
-                        # Final check to ensure no regression
-                        if final_count > initial_count and not self.has_invisible_elements() and not self.has_generating_placeholders():
-                            self.logger.success(f"Hoàn thành! Tổng số ảnh mới đã tải: {len(processed_srcs)}")
-                            return True
+                        self.logger.info("Có ảnh mới, tiếp tục tải trước khi dừng...")
+                        rate_limit_detected = True
+                        break
                     else:
-                        # Waiting for images to load/appear
-                        pass
+                        self.logger.error("Đã đạt rate limit - Dừng toàn bộ quá trình")
+                        return False
                 
             except Exception as e:
                 self.logger.debug(f"Lỗi khi kiểm tra: {e}")
             
             time.sleep(1)
+        else:
+            self.logger.error("Hết thời gian chờ tạo ảnh")
+            return False
         
-        self.logger.error("Hết thời gian chờ tạo ảnh")
-        return False
+        # Scan and download images - 5 times with 10s interval
+        # Nếu rate limit đã được phát hiện trước đó, chỉ quét 1 lần rồi dừng
+        max_scans = 1 if rate_limit_detected else 5
+        scan_interval = 10
+        max_images = 12  # Số ảnh tối đa mỗi batch (cố định)
+        
+        if rate_limit_detected:
+            self.logger.info("Rate limit đã phát hiện, tải ảnh 1 lần rồi dừng...")
+        
+        for scan_num in range(1, max_scans + 1):
+            # Check if already reached max images
+            if len(processed_srcs) >= max_images:
+                self.logger.info(f"Đã đạt giới hạn {max_images} ảnh, dừng quét")
+                break
+            
+            self.logger.info(f"Lần quét {scan_num}/{max_scans}...")
+            
+            # Không kiểm tra rate limit trong lúc tải ảnh - ưu tiên tải hết ảnh đã có
+            
+            # Find the latest batch section (highest ID number)
+            # Sections have IDs like: imagine-masonry-section-0, imagine-masonry-section-1, etc.
+            sections = self.driver.find_elements(By.CSS_SELECTOR, "div[id^='imagine-masonry-section-']")
+            
+            if not sections:
+                # Fallback to old method if no sections found
+                self.logger.debug("Không tìm thấy section, sử dụng phương pháp cũ")
+                all_images = self.driver.find_elements(By.CSS_SELECTOR, "div[role='listitem'] img")
+            else:
+                # Get the last section (latest batch)
+                latest_section = sections[-1]
+                section_id = latest_section.get_attribute("id")
+                self.logger.debug(f"Đang quét section mới nhất: {section_id}")
+                
+                # Get images only from the latest section
+                all_images = latest_section.find_elements(By.CSS_SELECTOR, "div[role='listitem'] img")
+            
+            total_images = len(all_images)
+            
+            # Count and download images
+            jpeg_count = 0
+            png_count = 0
+            new_downloads = 0
+            
+            for img in all_images:
+                # Check limit before each download
+                if len(processed_srcs) >= max_images:
+                    self.logger.info(f"Đã đạt giới hạn {max_images} ảnh")
+                    break
+                
+                src = img.get_attribute("src") or ""
+                
+                if src.startswith("data:image/jpeg"):
+                    jpeg_count += 1
+                    
+                    # Download if not already processed
+                    if src not in processed_srcs:
+                        self.logger.info(f"Phát hiện ảnh JPEG mới, đang tải xuống...")
+                        try:
+                            self._save_base64_image(src, output_dir, get_timestamp_filename(len(processed_srcs) + 1))
+                            processed_srcs.add(src)
+                            new_downloads += 1
+                            self.logger.success(f"Đã tải ảnh {len(processed_srcs)}/{max_images}")
+                        except Exception as dl_err:
+                            self.logger.error(f"Lỗi tải ảnh: {dl_err}")
+                            
+                elif src.startswith("data:image/png"):
+                    # PNG = placeholder, skip
+                    png_count += 1
+                    
+                elif "imagine-public" in src and "_thumbnail" not in src:
+                    # URL-based image (also valid)
+                    if src not in processed_srcs:
+                        self.logger.info(f"Phát hiện ảnh URL mới, đang tải xuống...")
+                        try:
+                            self._download_single_image(src, output_dir, get_timestamp_filename(len(processed_srcs) + 1))
+                            processed_srcs.add(src)
+                            new_downloads += 1
+                            self.logger.success(f"Đã tải ảnh {len(processed_srcs)}/{max_images}")
+                        except Exception as dl_err:
+                            self.logger.error(f"Lỗi tải ảnh: {dl_err}")
+            
+            self.logger.info(f"Lần quét {scan_num}: Tổng ảnh: {total_images} | JPEG: {jpeg_count} | PNG (bỏ qua): {png_count} | Mới tải: {new_downloads} | Tổng đã tải: {len(processed_srcs)}")
+            
+            # Wait 10s before next scan (except for last scan)
+            if scan_num < max_scans:
+                self.logger.info(f"Chờ {scan_interval}s trước lần quét tiếp theo...")
+                time.sleep(scan_interval)
+        
+        self.logger.info(f"Batch hoàn thành! Đã tải {len(processed_srcs)} ảnh")
+        
+        # Nếu rate limit đã phát hiện, trả về tuple (số ảnh, "rate_limit") để dừng các batch tiếp theo
+        if rate_limit_detected:
+            self.logger.warning("Rate limit đã đạt - Dừng sau khi tải ảnh")
+            return (len(processed_srcs), "rate_limit")
+        
+        return len(processed_srcs)
 
     def has_generating_placeholders(self) -> bool:
         """Check if there are generating placeholder images (Base64 PNGs) in the generation list."""
@@ -267,6 +338,51 @@ class GrokAutomation:
             elements = self.driver.find_elements(By.CSS_SELECTOR, "div[role='listitem'] img[src^='data:image/png']")
             return len(elements) > 0
         except Exception:
+            return False
+    
+    def check_rate_limit(self) -> bool:
+        """Check if rate limit notification is present on the page.
+        
+        Detects rate limit based on HTML attributes (language-independent):
+        - Toast notification with data-type="error"
+        - Contains triangle-alert icon (lucide-triangle-alert)
+        - Contains "Upgrade" button
+        
+        Returns:
+            True if rate limit detected
+        """
+        try:
+            # Method 1: Check for error toast with Upgrade button (most reliable)
+            # This is the rate limit toast structure from limmit.html
+            error_toasts = self.driver.find_elements(
+                By.CSS_SELECTOR, 
+                "li[data-sonner-toast][data-type='error']"
+            )
+            
+            for toast in error_toasts:
+                # Verify it's the rate limit toast by checking for Upgrade button
+                try:
+                    upgrade_btn = toast.find_element(By.CSS_SELECTOR, "button")
+                    if upgrade_btn:
+                        self.logger.warning("Phát hiện rate limit - Dừng toàn bộ quá trình")
+                        return True
+                except:
+                    pass
+            
+            # Method 2: Check for triangle-alert icon inside toast (backup check)
+            alert_icons = self.driver.find_elements(
+                By.CSS_SELECTOR,
+                "li[data-sonner-toast] svg.lucide-triangle-alert"
+            )
+            
+            if alert_icons:
+                self.logger.warning("Phát hiện rate limit - Dừng toàn bộ quá trình")
+                return True
+                
+            return False
+            
+        except Exception as e:
+            self.logger.debug(f"Lỗi khi kiểm tra rate limit: {e}")
             return False
     
     def wait_for_images(self, timeout: int = None, min_count: int = 1) -> bool:

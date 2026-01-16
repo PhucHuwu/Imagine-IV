@@ -12,7 +12,6 @@ class Config:
     
     DEFAULT_CONFIG = {
         "thread_count": 1,
-        "images_per_download": 4,
         "batch_size": 10,
         "delay_ms": 1000,
         "chrome_position": "left",

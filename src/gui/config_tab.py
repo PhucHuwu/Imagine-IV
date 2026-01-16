@@ -51,8 +51,7 @@ class ConfigTab(ttk.Frame):
         
         # Image Settings Section
         self._create_section("Cấu Hình Ảnh")
-        self._create_spinbox("images_per_download", "Số ảnh tải mỗi lần", 1, 20)
-        self._create_spinbox("batch_size", "Kích thước batch", 1, 100)
+        self._create_spinbox("batch_size", "Số lần tạo (batch)", 1, 100)
         
         # Timing Section
         self._create_section("Thời Gian")

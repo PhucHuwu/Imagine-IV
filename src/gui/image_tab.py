@@ -6,6 +6,7 @@ import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 
 from ..config import get_config
+from ..logger import get_logger
 
 
 class ImageTab(ttk.Frame):
@@ -23,6 +24,7 @@ class ImageTab(ttk.Frame):
         super().__init__(parent, **kwargs)
         
         self.config = get_config()
+        self.logger = get_logger()
         self._on_start = on_start
         self._on_stop = on_stop
         self._running = False
@@ -53,27 +55,11 @@ class ImageTab(ttk.Frame):
         settings_inner = ttk.Frame(settings_frame, padding=15)
         settings_inner.pack(fill=BOTH, expand=True)
         
-        # Images per batch
-        img_frame = ttk.Frame(settings_inner)
-        img_frame.pack(fill=X, pady=5)
-        
-        ttk.Label(img_frame, text="Số ảnh tải về:", width=20).pack(side=LEFT)
-        
-        self._images_var = tk.IntVar(value=self.config.get("images_per_download", 4))
-        spinbox = ttk.Spinbox(
-            img_frame,
-            from_=1,
-            to=20,
-            textvariable=self._images_var,
-            width=10
-        )
-        spinbox.pack(side=LEFT, padx=5)
-        
         # Batch size
         batch_frame = ttk.Frame(settings_inner)
         batch_frame.pack(fill=X, pady=5)
         
-        ttk.Label(batch_frame, text="Số lượng mỗi batch:", width=20).pack(side=LEFT)
+        ttk.Label(batch_frame, text="Số lần tạo (batch):", width=22).pack(side=LEFT)
         
         self._batch_var = tk.IntVar(value=self.config.get("batch_size", 10))
         batch_spin = ttk.Spinbox(
@@ -84,6 +70,16 @@ class ImageTab(ttk.Frame):
             width=10
         )
         batch_spin.pack(side=LEFT, padx=5)
+        
+        # Auto-save on change
+        self._batch_var.trace_add("write", lambda *args: self._save_setting("batch_size", self._batch_var))
+        
+        ttk.Label(batch_frame, text="lần", foreground="gray").pack(side=LEFT)
+        
+        # Info label
+        info_frame = ttk.Frame(settings_inner)
+        info_frame.pack(fill=X, pady=5)
+        ttk.Label(info_frame, text="Mỗi batch tải tối đa 12 ảnh", foreground="gray").pack(anchor=W)
         
         # Status frame
         status_outer = ttk.Labelframe(self, text="Trạng Thái")
@@ -137,12 +133,24 @@ class ImageTab(ttk.Frame):
         )
         self._stop_btn.pack(side=LEFT, padx=5)
     
+    def _save_setting(self, key: str, var: tk.IntVar):
+        """Auto-save setting when value changes."""
+        try:
+            value = int(var.get())
+            self.config.set(key, value)
+        except (ValueError, tk.TclError):
+            # Ignore invalid values (e.g., empty string during typing)
+            pass
+    
     def _on_start_click(self):
         """Handle start button click."""
         if self._on_start:
-            # Save settings
-            self.config.set("images_per_download", self._images_var.get())
-            self.config.set("batch_size", self._batch_var.get())
+            # Save settings - ensure integer values
+            batch_size = int(self._batch_var.get())
+            
+            self.config.set("batch_size", batch_size)
+            
+            self.logger.info(f"Đã lưu cài đặt: batch_size={batch_size}")
             
             self._running = True
             self._start_btn.configure(state=DISABLED)
@@ -150,8 +158,7 @@ class ImageTab(ttk.Frame):
             self._status_label.configure(text="Đang chạy...")
             
             self._on_start("anh", {
-                "images_per_download": self._images_var.get(),
-                "batch_count": self._batch_var.get()
+                "batch_count": batch_size
             })
     
     def _on_stop_click(self):
@@ -161,6 +168,23 @@ class ImageTab(ttk.Frame):
             self._stop_btn.configure(state=DISABLED)
             self._status_label.configure(text="Đang dừng...")
             self._on_stop()
+    
+    def set_buttons_enabled(self, enabled: bool, allow_stop: bool = False):
+        """Enable or disable buttons based on app state.
+        
+        Args:
+            enabled: Whether to enable start button
+            allow_stop: Whether to allow stop button (when generating)
+        """
+        if enabled:
+            self._start_btn.configure(state=NORMAL)
+            self._stop_btn.configure(state=DISABLED)
+        else:
+            self._start_btn.configure(state=DISABLED)
+            if allow_stop and self._running:
+                self._stop_btn.configure(state=NORMAL)
+            else:
+                self._stop_btn.configure(state=DISABLED)
     
     def update_progress(self, current: int, total: int):
         """Update progress bar."""
