@@ -145,6 +145,7 @@ class VideoGenerator:
                         
                         if not source_image:
                             self.logger.error("Không thể tạo ảnh nguồn, bỏ qua video này")
+                            self.grok.go_back_to_imagine()
                             continue
                     
                     # Create Video 1
@@ -154,9 +155,11 @@ class VideoGenerator:
                     result1 = self._create_video(source_image, video1_prompt, str(video1_path))
                     if result1 == "moderated":
                         self.logger.error("Video 1 bị nhạy cảm, kết thúc batch")
+                        self.grok.go_back_to_imagine()
                         break
                     if not result1:
                         self.logger.error("Không thể tạo video 1, bỏ qua")
+                        self.grok.go_back_to_imagine()
                         continue
                     
                     if self._stop_event.is_set():
@@ -168,6 +171,7 @@ class VideoGenerator:
                     
                     if not self.video_processor.extract_last_frame(str(video1_path), str(last_frame_path)):
                         self.logger.error("Không thể trích xuất frame cuối, bỏ qua")
+                        self.grok.go_back_to_imagine()
                         continue
                     
                     # Create Video 2 from last frame
@@ -178,9 +182,11 @@ class VideoGenerator:
                     result2 = self._create_video(str(last_frame_path), video2_full_prompt, str(video2_path))
                     if result2 == "moderated":
                         self.logger.error("Video 2 bị nhạy cảm, kết thúc batch")
+                        self.grok.go_back_to_imagine()
                         break
                     if not result2:
                         self.logger.error("Không thể tạo video 2, bỏ qua")
+                        self.grok.go_back_to_imagine()
                         continue
                     
                     if self._stop_event.is_set():
@@ -295,9 +301,23 @@ class VideoGenerator:
             self.grok.navigate_to_imagine()
             time.sleep(2)
             
-            # Upload image (this will redirect to video creation page)
-            if not self.grok.upload_image(image_path):
-                self.logger.error("Không thể upload ảnh")
+            # Upload image with retry (moderation service can fail temporarily)
+            max_retries = 3
+            upload_success = False
+            
+            for attempt in range(max_retries):
+                if self.grok.upload_image(image_path):
+                    upload_success = True
+                    break
+                else:
+                    if attempt < max_retries - 1:
+                        self.logger.warning(f"Upload thất bại, thử lại ({attempt + 2}/{max_retries})...")
+                        # Go back and try again
+                        self.grok.navigate_to_imagine()
+                        time.sleep(2)
+            
+            if not upload_success:
+                self.logger.error("Không thể upload ảnh sau nhiều lần thử")
                 return None
             
             # Wait for video creation page to load

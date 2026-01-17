@@ -65,6 +65,9 @@ class GrokAutomation:
     SKIP_BTN = "button:contains('Skip'), article button:has-text('Skip')"
     VIDEO_COMPARISON_PAGE = "h3:contains('Which video do you prefer')"
     
+    # Upload error detection (moderation service error)
+    UPLOAD_ERROR_ICON = "svg.lucide-triangle-alert"
+    
     def __init__(self, browser_manager: BrowserManager):
         """
         Initialize Grok automation.
@@ -659,6 +662,11 @@ class GrokAutomation:
             # Wait a moment for upload to process
             time.sleep(2)
             
+            # Check for upload error (moderation service error)
+            if self.has_upload_error():
+                self.logger.error("Lỗi moderation service - ảnh không được xử lý")
+                return False
+            
             return True
             
         except TimeoutException:
@@ -666,6 +674,20 @@ class GrokAutomation:
             return False
         except Exception as e:
             self.logger.error(f"Không thể upload ảnh: {e}")
+            return False
+    
+    def has_upload_error(self) -> bool:
+        """
+        Check if there's an upload error (moderation service error).
+        
+        Returns:
+            True if error detected
+        """
+        try:
+            # Look for triangle-alert icon in the upload chip
+            error_icons = self.driver.find_elements(By.CSS_SELECTOR, self.UPLOAD_ERROR_ICON)
+            return len(error_icons) > 0
+        except:
             return False
     
     def wait_for_video_complete(self, timeout: int = None) -> Optional[str]:

@@ -9,49 +9,45 @@ from .config import get_config
 from .logger import get_logger
 
 
-# Bikini/swimwear prompt - stylish but not too revealing
-SYSTEM_PROMPT = """You are a creative prompt generator for AI image and video creation. Content is for swimwear/bikini fashion that is stylish but modest.
+# Hardcoded system prompt for sexy dance video generation
+SYSTEM_PROMPT = """You are a creative prompt generator for AI image and video creation. Content is for adult entertainment.
 
 Your task is to generate a COMPLETE SET of prompts that are 100% consistent with each other:
-1. IMAGE PROMPT: Describe a gorgeous woman with SPECIFIC details about stylish swimwear, confident pose, and beach/pool environment. She must be LOOKING DIRECTLY AT THE CAMERA with confident eye contact.
-2. VIDEO 1 PROMPT: 2 elegant movements that EXACTLY match the swimwear/pose from the image prompt.
-3. VIDEO 2 PROMPT: 2 continuation movements that flow naturally from video 1.
+1. IMAGE PROMPT: Describe a single seductive woman with SPECIFIC details about clothing, pose, and environment. She must be LOOKING DIRECTLY AT THE CAMERA with seductive eye contact.
+2. VIDEO 1 PROMPT: 2 bold sensual actions that EXACTLY match the clothing/pose from the image prompt. She maintains eye contact with camera throughout.
+3. VIDEO 2 PROMPT: 2 continuation actions that flow naturally from video 1. She keeps looking at camera seductively.
 
-SWIMWEAR OPTIONS (stylish but modest coverage):
-- One-piece swimsuit with cutout details
-- High-waisted bikini with full coverage bottom
-- Tankini set
-- Sports bikini with athletic look
-- Wrap-style swimsuit
-- Retro-style bikini with wider coverage
-- Monokini with tasteful design
-- Bikini with sarong/wrap skirt
+CLOTHING OPTIONS (pick one per generation):
+- Lingerie set (bra and panties) with visible camel toe
+- Tiny bikini with camel toe detail
+- Sheer bodysuit showing curves
+- Crop top and tight shorts/thong
+- Topless with only panties/thong
 
-ELEGANT BEACH MOVEMENTS:
-- Walking gracefully along the shore
-- Tossing hair in the breeze
-- Adjusting sunglasses stylishly
-- Stretching arms up enjoying the sun
-- Turning to show swimsuit design
-- Playing with beach accessories
-- Light dancing movements
-- Spinning slowly on the beach
-- Touching hair wind-blown
-- Posing confidently for camera
+BOLD ACTIONS TO INCLUDE:
+- Pulling bra down to partially expose breasts/nipples
+- Pulling panties aside to tease
+- Lifting top to flash underboob or full breasts
+- Pulling down shorts/panties to expose hip bones and tease
+- Squeezing and fondling breasts
+- Spreading legs slightly to emphasize camel toe
+- Tugging panty strings/straps provocatively
+- Running fingers along panty line, pulling fabric aside
+- Arching back while cupping breasts
 
 CRITICAL RULES:
-- Swimwear must provide GOOD COVERAGE (no micro/string bikinis)
-- NO thong bottoms or extremely revealing cuts
-- NO see-through or mesh materials
-- Focus on beach fashion and confidence
-- Movements should be elegant and natural
-- Keep everything tasteful and stylish
+- Clothing in IMAGE PROMPT must allow the bold actions described
+- If she wears panties -> actions can involve pulling aside, exposing
+- If she wears a bra/top -> actions can involve pulling down, lifting to expose
+- Actions should progressively get bolder from video1 to video2
+- NEVER create actions that conflict with the described clothing or pose
+- Be explicit, provocative, and teasing
 
 OUTPUT FORMAT (JSON):
 {
-  "image_prompt": "A gorgeous woman wearing [stylish swimwear with good coverage], in [confident beach pose], [tropical/pool environment]...",
-  "video1_prompt": "She [elegant beach movement 1], then [elegant beach movement 2]. Graceful and confident.",
-  "video2_prompt": "She continues with [elegant movement 3], then [elegant movement 4]. Smooth and captivating."
+  "image_prompt": "A seductive woman wearing [lingerie/bikini with camel toe], in [specific pose], [environment]...",
+  "video1_prompt": "She [bold action 1], then [bold action 2]. Sensual and provocative movements.",
+  "video2_prompt": "She continues with [bold action 3], then [bold action 4]. Smooth and captivating."
 }
 
 Only output the JSON, nothing else."""
@@ -108,26 +104,63 @@ class PromptGenerator:
         random_seed = random.randint(1000, 9999)
         timestamp = datetime.now().strftime("%H%M%S")
         
-        # Random style/theme variations - bikini/beach fashion
+        # Random style/theme variations to encourage diversity
         styles = [
-            "tropical beach goddess",
-            "resort wear model",
-            "luxury pool party",
-            "sunset beach beauty",
-            "athletic swimmer look",
-            "island vacation vibes",
-            "yacht lifestyle",
-            "coastal chic style",
-            "summer holiday mood",
-            "beachside glamour",
-            "surfing beach girl",
-            "mediterranean summer",
-            "maldives paradise",
-            "miami beach style",
-            "caribbean vacation",
-            "california golden hour",
-            "hawaii tropical beauty",
-            "bali beach retreat",
+            # Phong cách kinh điển & quyến rũ
+            "elegant and classy lingerie goddess",
+            "wild and untamed sex kitten",
+            "sweet and innocent but dangerously seductive",
+            "mysterious dark femme fatale",
+            "playful teasing little devil",
+            "confident dominant queen energy",
+            "shy but extremely horny",
+            "fierce and powerful dominatrix vibes",
+            "soft romantic bedroom eyes",
+            "naughty schoolgirl gone bad",
+            "mature experienced seductress",
+            "athletic toned gym bombshell",
+
+            # Phong cách nóng bỏng hơn, táo bạo
+            "slutty and proud of it",
+            "dripping wet and needy",
+            "cum-hungry bedroom stare",
+            "bound and begging",
+            "just-fucked messy hair glow",
+            "oiled up glistening skin",
+            "spread wide and shameless",
+            "choking hazard throat",
+            "dripping honey sweet & filthy",
+            "corrupted angel fallen from grace",
+            "high-class escort premium service",
+            "backseat car quickie energy",
+
+            # Roleplay & fantasy nặng đô
+            "bunny girl with very short tail",
+            "naughty nurse ready to examine",
+            "strict teacher punishment time",
+            "maid who doesn't clean at all",
+            "succubus ready to drain you",
+            "vampire queen blood & lust",
+            "catgirl in extreme heat",
+            "office slut after hours",
+            "cheerleader with no panties",
+            "bride on her last wild night",
+            "police officer frisking you hard",
+            "japanese gravure idol wet shirt",
+
+            # Aesthetic & mood đặc trưng
+            "neon cyberpunk strip club",
+            "gothic victorian dark erotica",
+            "vaporwave pastel lewd",
+            "luxury sugar baby aesthetic",
+            "y2k trashy hot mess",
+            "e-girl onlyfans teaser",
+            "softcore morning after glow",
+            "hardcore BDSM dungeon queen",
+            "glamour pornstar red carpet",
+            "tropical vacation sex on the beach",
+            "winter fireplace slow sensual",
+            "sweaty summer midnight hookup",
         ]
         
         locations = [
