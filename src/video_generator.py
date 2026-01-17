@@ -154,9 +154,9 @@ class VideoGenerator:
                     
                     result1 = self._create_video(source_image, video1_prompt, str(video1_path))
                     if result1 == "moderated":
-                        self.logger.error("Video 1 bị nhạy cảm, kết thúc batch")
+                        self.logger.warning("Video 1 bị nhạy cảm (moderated), bỏ qua video này")
                         self.grok.go_back_to_imagine()
-                        break
+                        continue
                     if not result1:
                         self.logger.error("Không thể tạo video 1, bỏ qua")
                         self.grok.go_back_to_imagine()
@@ -181,9 +181,9 @@ class VideoGenerator:
                     
                     result2 = self._create_video(str(last_frame_path), video2_full_prompt, str(video2_path))
                     if result2 == "moderated":
-                        self.logger.error("Video 2 bị nhạy cảm, kết thúc batch")
+                        self.logger.warning("Video 2 bị nhạy cảm (moderated), bỏ qua video này")
                         self.grok.go_back_to_imagine()
-                        break
+                        continue
                     if not result2:
                         self.logger.error("Không thể tạo video 2, bỏ qua")
                         self.grok.go_back_to_imagine()

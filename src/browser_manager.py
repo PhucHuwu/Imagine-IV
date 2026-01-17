@@ -67,25 +67,35 @@ class BrowserManager:
         if not self.driver:
             return
         
-        try:
-            # Get screen size via JavaScript
-            screen_width = self.driver.execute_script("return window.screen.availWidth;")
-            screen_height = self.driver.execute_script("return window.screen.availHeight;")
-            
-            # Window size = 1/6 of screen (3 columns x 2 rows)
-            window_width = screen_width // 3
-            window_height = screen_height // 2
-            
-            # Position: stagger each thread by offset
-            offset = (self.thread_id - 1) * 30
-            position_x = offset % (screen_width // 2)
-            position_y = offset % (screen_height)
-            
-            self.driver.set_window_size(window_width, window_height)
-            self.driver.set_window_position(position_x, position_y)
-            
-        except Exception as e:
-            self.logger.warning(f"Không thể set kích thước cửa sổ: {e}")
+        # Wait a bit for window to be ready
+        import time
+        time.sleep(2)
+        
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Get screen size via JavaScript
+                screen_width = self.driver.execute_script("return window.screen.availWidth;")
+                screen_height = self.driver.execute_script("return window.screen.availHeight;")
+                
+                # Window size = 1/6 of screen (3 columns x 2 rows)
+                window_width = screen_width // 3
+                window_height = screen_height // 2
+                
+                # Position: stagger each thread by offset
+                offset = (self.thread_id - 1) * 30
+                position_x = offset % (screen_width // 2)
+                position_y = offset % (screen_height)
+                
+                self.driver.set_window_size(window_width, window_height)
+                self.driver.set_window_position(position_x, position_y)
+                return
+                
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                else:
+                    self.logger.warning(f"Không thể set kích thước cửa sổ: {e}")
     
     def start(self) -> bool:
         """
