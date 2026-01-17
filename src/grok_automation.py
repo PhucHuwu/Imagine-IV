@@ -383,40 +383,32 @@ class GrokAutomation:
         
         Detects rate limit based on HTML attributes (language-independent):
         - Toast notification with data-type="error"
-        - Contains triangle-alert icon (lucide-triangle-alert)
-        - Contains "Upgrade" button
+        - Contains "Upgrade" text or upgrade button
         
         Returns:
             True if rate limit detected
         """
         try:
-            # Method 1: Check for error toast with Upgrade button (most reliable)
-            # This is the rate limit toast structure from limmit.html
+            # Only check for error toast with Upgrade button
+            # This is specifically the rate limit toast
             error_toasts = self.driver.find_elements(
                 By.CSS_SELECTOR, 
                 "li[data-sonner-toast][data-type='error']"
             )
             
             for toast in error_toasts:
-                # Verify it's the rate limit toast by checking for Upgrade button
                 try:
-                    upgrade_btn = toast.find_element(By.CSS_SELECTOR, "button")
-                    if upgrade_btn:
-                        self.logger.warning("Phát hiện rate limit - Dừng toàn bộ quá trình")
-                        return True
+                    # Check for Upgrade button - this is unique to rate limit
+                    buttons = toast.find_elements(By.TAG_NAME, "button")
+                    for btn in buttons:
+                        btn_text = btn.text.strip().lower()
+                        # Only rate limit toast has "upgrade" button
+                        if "upgrade" in btn_text or "nâng cấp" in btn_text:
+                            self.logger.warning("Phát hiện rate limit - Dừng toàn bộ quá trình")
+                            return True
                 except:
                     pass
             
-            # Method 2: Check for triangle-alert icon inside toast (backup check)
-            alert_icons = self.driver.find_elements(
-                By.CSS_SELECTOR,
-                "li[data-sonner-toast] svg.lucide-triangle-alert"
-            )
-            
-            if alert_icons:
-                self.logger.warning("Phát hiện rate limit - Dừng toàn bộ quá trình")
-                return True
-                
             return False
             
         except Exception as e:
@@ -1459,8 +1451,9 @@ class GrokAutomation:
             if blurred:
                 return True
             
-            # Check for eye-off icon
-            eye_off = self.driver.find_elements(By.CSS_SELECTOR, self.MODERATED_ICON)
+            # Check for eye-off icon anywhere in the article or video container
+            # User reported structure: <div class="..."><svg ... class="lucide lucide-eye-off ...">...</svg></div>
+            eye_off = self.driver.find_elements(By.CSS_SELECTOR, "svg.lucide-eye-off")
             if eye_off:
                 return True
             
