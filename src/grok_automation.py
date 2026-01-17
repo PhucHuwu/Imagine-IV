@@ -21,7 +21,6 @@ class GrokAutomation:
     """Automate Grok Imagine for image and video generation."""
     
     # URLs
-    GROK_URL = "https://grok.com"
     IMAGINE_URL = "https://grok.com/imagine"
     
     # Selectors (language-independent)
@@ -61,6 +60,10 @@ class GrokAutomation:
     # Video thumbnail sidebar (2 videos after auto-generation)
     VIDEO_THUMBNAIL_SIDEBAR = ".snap-y.snap-mandatory"
     VIDEO_THUMBNAIL_ITEM = ".snap-y.snap-mandatory > div:not(.scroll-gradient-sentinel)"
+    
+    # Video comparison page (Skip button)
+    SKIP_BTN = "button:contains('Skip'), article button:has-text('Skip')"
+    VIDEO_COMPARISON_PAGE = "h3:contains('Which video do you prefer')"
     
     def __init__(self, browser_manager: BrowserManager):
         """
@@ -676,7 +679,7 @@ class GrokAutomation:
             Video URL if successful, None if failed
         """
         if timeout is None:
-            timeout = self.config.get("timeout_seconds", 180)  # Videos take longer
+            timeout = 300  # 5 minutes for video generation
         
         self.logger.info(f"Đang chờ tạo video (timeout: {timeout}s)...")
         
@@ -791,6 +794,7 @@ class GrokAutomation:
     def download_video_to_path(self, url: str, output_path: str) -> bool:
         """
         Download video from URL to specific path.
+        Uses browser cookies and headers to avoid 403 errors.
         
         Args:
             url: Video URL
@@ -805,7 +809,21 @@ class GrokAutomation:
             
             self.logger.info(f"Đang tải video: {output_path.name}...")
             
-            response = requests.get(url, timeout=180, stream=True)
+            # Get cookies from browser session
+            cookies = {}
+            if self.driver:
+                for cookie in self.driver.get_cookies():
+                    cookies[cookie['name']] = cookie['value']
+            
+            # Set headers to mimic browser request
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://grok.com/',
+                'Origin': 'https://grok.com',
+                'Accept': 'video/webm,video/ogg,video/*;q=0.9,*/*;q=0.8',
+            }
+            
+            response = requests.get(url, timeout=180, stream=True, cookies=cookies, headers=headers)
             
             if response.status_code == 200:
                 total_size = int(response.headers.get('content-length', 0))
@@ -832,27 +850,17 @@ class GrokAutomation:
             return False
     
     def clear_prompt_input(self) -> bool:
-        """Clear the prompt input field."""
+        """Clear the prompt input field (if exists)."""
         try:
             editor = self.driver.find_element(By.CSS_SELECTOR, self.PROMPT_INPUT)
-            
-            # Clear via JavaScript
             self.driver.execute_script("""
                 const editor = arguments[0];
                 editor.innerHTML = '<p></p>';
-                
-                // Trigger input event
-                const event = new InputEvent('input', {
-                    bubbles: true,
-                    cancelable: true,
-                });
-                editor.dispatchEvent(event);
+                editor.dispatchEvent(new InputEvent('input', {bubbles: true}));
             """, editor)
-            
             return True
-        except Exception as e:
-            self.logger.debug(f"Không thể xóa prompt: {e}")
-            return False
+        except:
+            return False  # Silent fail - element may not exist on video page
     
     def get_first_image_from_batch(self, output_path: str) -> bool:
         """
@@ -957,6 +965,48 @@ class GrokAutomation:
         except Exception:
             return False
     
+    def click_skip_if_present(self) -> bool:
+        """
+        Click Skip button if video comparison page appears.
+        Grok shows 2 videos for user to choose - we skip this.
+        Uses DOM structure instead of text (language-independent).
+        
+        Returns:
+            True if Skip button was clicked
+        """
+        try:
+            # Video comparison page has: article > div > div > h3 + p + button(Skip)
+            # The Skip button is inside article, after h3, as a standalone button
+            articles = self.driver.find_elements(By.TAG_NAME, "article")
+            
+            for article in articles:
+                # Look for h3 element (the "Which video do you prefer?" heading)
+                h3_elements = article.find_elements(By.TAG_NAME, "h3")
+                if not h3_elements:
+                    continue
+                
+                # Find the button that's sibling to h3 (Skip button)
+                # It's in a flex container with h3 and p
+                buttons = article.find_elements(By.CSS_SELECTOR, "div.flex.flex-col button.rounded-full")
+                for btn in buttons:
+                    # Skip button is not the thumbs-up/prefer button
+                    # It doesn't have lucide-thumbs-up icon
+                    try:
+                        btn.find_element(By.CSS_SELECTOR, "svg.lucide-thumbs-up")
+                        continue  # This is "I prefer this" button, skip
+                    except:
+                        pass
+                    
+                    # This should be the Skip button
+                    btn.click()
+                    self.logger.debug("Đã click nút Skip")
+                    time.sleep(1)
+                    return True
+            
+            return False
+        except:
+            return False
+    
     def wait_for_initial_video(self, timeout: int = None) -> bool:
         """
         Wait for the initial video to be generated after uploading image.
@@ -969,7 +1019,7 @@ class GrokAutomation:
             True if video generation completed
         """
         if timeout is None:
-            timeout = self.config.get("timeout_seconds", 180)
+            timeout = 300  # 5 minutes for video generation
         
         self.logger.info(f"Đang chờ video tự động tạo (timeout: {timeout}s)...")
         
@@ -979,6 +1029,9 @@ class GrokAutomation:
         
         while time.time() - start_time < timeout:
             try:
+                # Check and click Skip button if video comparison page appears
+                self.click_skip_if_present()
+                
                 # Check for rate limit
                 if self.check_rate_limit():
                     self.logger.warning("Phát hiện rate limit")
@@ -1025,6 +1078,137 @@ class GrokAutomation:
         
         self.logger.error("Hết thời gian chờ video tự động")
         return False
+    
+    def get_auto_video_url(self) -> Optional[str]:
+        """
+        Get URL of the auto-generated video on video creation page.
+        
+        Returns:
+            Video URL or None
+        """
+        try:
+            # Find video element in the article
+            videos = self.driver.find_elements(By.CSS_SELECTOR, self.VIDEO_IN_ARTICLE)
+            
+            for video in videos:
+                src = video.get_attribute("src") or ""
+                
+                # Check source element if src is empty
+                if not src:
+                    try:
+                        source = video.find_element(By.TAG_NAME, "source")
+                        src = source.get_attribute("src") or ""
+                    except:
+                        pass
+                
+                if src and ("imagine-public" in src or "assets.grok.com" in src) and ".mp4" in src:
+                    self.logger.info(f"Tìm thấy URL video tự động")
+                    return src
+            
+            self.logger.debug("Không tìm thấy video tự động")
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"Lỗi khi lấy URL video tự động: {e}")
+            return None
+    
+    def download_video_via_button(self, output_path: str, timeout: int = 60) -> bool:
+        """
+        Download video by clicking the Download button on Grok page.
+        This avoids 403 errors as it uses browser's download mechanism.
+        
+        Args:
+            output_path: Where to save the downloaded video
+            timeout: Maximum time to wait for download
+            
+        Returns:
+            True if successful
+        """
+        import glob
+        import shutil
+        
+        try:
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            self.logger.info(f"Đang tải video qua nút Download...")
+            
+            # Find and click the Download button
+            # Based on DOM: button with aria-label="Download" containing lucide-download icon
+            download_btn = None
+            
+            try:
+                download_btn = WebDriverWait(self.driver, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Download']"))
+                )
+            except:
+                self.logger.debug("Không tìm thấy nút Download với aria-label")
+            
+            if not download_btn:
+                # Fallback: find by icon
+                try:
+                    download_btn = self.driver.find_element(
+                        By.CSS_SELECTOR, 
+                        "button:has(svg.lucide-download)"
+                    )
+                except:
+                    self.logger.error("Không tìm thấy nút Download")
+                    return False
+            
+            # Click download button
+            download_btn.click()
+            self.logger.info("Đã click nút Download")
+            
+            # Wait for download to complete
+            # Check Downloads folder for new mp4 file
+            import time
+            import os
+            
+            # Get user's Downloads folder
+            downloads_folder = Path.home() / "Downloads"
+            
+            # Wait for .mp4 file to appear in Downloads
+            start_time = time.time()
+            downloaded_file = None
+            
+            while time.time() - start_time < timeout:
+                # Look for newest mp4 file in Downloads
+                mp4_files = list(downloads_folder.glob("*.mp4"))
+                
+                # Also check for partial downloads (.crdownload on Chrome)
+                partial_files = list(downloads_folder.glob("*.crdownload"))
+                
+                if partial_files:
+                    # Download in progress
+                    time.sleep(1)
+                    continue
+                
+                if mp4_files:
+                    # Sort by modification time, get newest
+                    mp4_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+                    newest = mp4_files[0]
+                    
+                    # Check if it was modified recently (within last 30 seconds)
+                    if time.time() - newest.stat().st_mtime < 30:
+                        downloaded_file = newest
+                        break
+                
+                time.sleep(1)
+            
+            if not downloaded_file:
+                self.logger.error("Hết thời gian chờ tải video")
+                return False
+            
+            # Move file to output path
+            self.logger.info(f"Đang di chuyển video từ Downloads...")
+            shutil.move(str(downloaded_file), str(output_path))
+            
+            self.logger.success(f"Đã lưu video: {output_path}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Lỗi tải video qua nút Download: {e}")
+            return False
     
     def enter_video_prompt(self, prompt: str) -> bool:
         """
@@ -1102,7 +1286,7 @@ class GrokAutomation:
             None if failed for other reasons
         """
         if timeout is None:
-            timeout = self.config.get("timeout_seconds", 180)
+            timeout = 300  # 5 minutes for video generation
         
         self.logger.info(f"Đang chờ video được tạo (timeout: {timeout}s)...")
         
@@ -1127,6 +1311,9 @@ class GrokAutomation:
         # Now wait for generation to COMPLETE
         while time.time() - start_time < timeout:
             try:
+                # Check and click Skip button if video comparison page appears
+                self.click_skip_if_present()
+                
                 # Check for rate limit
                 if self.check_rate_limit():
                     self.logger.warning("Phát hiện rate limit khi tạo video")
@@ -1223,22 +1410,15 @@ class GrokAutomation:
     
     def go_back_to_imagine(self) -> bool:
         """
-        Click back button to return to Imagine gallery.
+        Navigate back to Imagine gallery.
         
         Returns:
             True if successful
         """
-        try:
-            back_btn = self.driver.find_element(By.CSS_SELECTOR, self.BACK_BTN)
-            back_btn.click()
-            time.sleep(1)
-            self.logger.debug("Đã quay lại trang Imagine")
-            return True
-        except Exception as e:
-            self.logger.debug(f"Không thể quay lại: {e}")
-            # Fallback: navigate directly
-            self.navigate_to_imagine()
-            return True
+        self.navigate_to_imagine()
+        time.sleep(1)
+        self.logger.debug("Đã quay lại trang Imagine")
+        return True
 
     def is_current_video_moderated(self) -> bool:
         """

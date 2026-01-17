@@ -266,28 +266,31 @@ class VideoGenerator:
     
     def _create_video(self, image_path: str, prompt: str, output_path: str) -> Optional[str]:
         """
-        Create a single 6s video from image + prompt.
+        Create video(s) from image.
         
         Flow:
         1. Navigate to Imagine
         2. Upload image → Grok auto-generates 2 videos
         3. Wait for video to complete
         4. Check if video is moderated, try switching if needed
-        5. Enter custom prompt
-        6. Wait for custom video to complete
-        7. Download video
+        5. Download the auto-generated video (if not moderated)
+        6. Enter custom prompt and generate new video
+        7. Download video from prompt (if not moderated)
         
         Args:
             image_path: Source image path
             prompt: Video prompt
-            output_path: Where to save video
+            output_path: Where to save video (will add _auto suffix for auto video)
             
         Returns:
-            "success" if video created
-            "moderated" if both videos are moderated (should skip batch)
+            "success" if at least one video created
+            "moderated" if both auto videos are moderated (should skip batch)
             None if other error
         """
         try:
+            downloaded_any = False
+            output_path_obj = Path(output_path)
+            
             # Navigate to Imagine page first
             self.grok.navigate_to_imagine()
             time.sleep(2)
@@ -318,17 +321,39 @@ class VideoGenerator:
                 self.logger.error("Cả 2 video tự động đều bị nhạy cảm")
                 return "moderated"
             
-            # Now we can enter our custom prompt
+            # === STEP 1: Download auto-generated video via Download button ===
+            time.sleep(1)
+            
+            # Create path for auto video with _auto suffix
+            auto_output_path = output_path_obj.parent / f"{output_path_obj.stem}_auto{output_path_obj.suffix}"
+            
+            # Use download button to avoid 403 errors
+            if self.grok.download_video_via_button(str(auto_output_path)):
+                self.logger.success(f"Đã tải video tự động: {auto_output_path.name}")
+                downloaded_any = True
+            else:
+                self.logger.warning("Không thể tải video tự động qua nút Download")
+            
+            # === STEP 2: Generate video from prompt ===
             time.sleep(1)
             
             # Enter video prompt into textarea
             if not self.grok.enter_video_prompt(prompt):
                 self.logger.error("Không thể nhập prompt video")
+                # Still return success if we downloaded auto video
+                if downloaded_any:
+                    self.grok.go_back_to_imagine()
+                    time.sleep(1)
+                    return "success"
                 return None
             
             # Submit prompt to generate new video with our prompt
             if not self.grok.submit_video_prompt():
                 self.logger.error("Không thể gửi prompt")
+                if downloaded_any:
+                    self.grok.go_back_to_imagine()
+                    time.sleep(1)
+                    return "success"
                 return None
             
             # Wait for our custom video to be generated
@@ -336,26 +361,35 @@ class VideoGenerator:
             
             # Check if video from prompt is moderated
             if video_url == "moderated":
-                self.logger.error("Video từ prompt bị nhạy cảm")
-                return "moderated"
-            
-            if not video_url:
-                self.logger.error("Video không được tạo")
-                return None
-            
-            # Download video
-            if not self.grok.download_video_to_path(video_url, output_path):
-                self.logger.error("Không thể tải video")
-                return None
+                self.logger.warning("Video từ prompt bị nhạy cảm, bỏ qua")
+                # Still success if we got auto video
+                if downloaded_any:
+                    self.grok.go_back_to_imagine()
+                    time.sleep(1)
+                    return "success"
+            elif video_url:
+                # Download video from prompt via Download button
+                if self.grok.download_video_via_button(output_path):
+                    self.logger.success(f"Đã tải video từ prompt: {output_path_obj.name}")
+                    downloaded_any = True
+                else:
+                    self.logger.warning("Không thể tải video từ prompt")
+            else:
+                self.logger.warning("Video từ prompt không được tạo")
             
             # Go back to Imagine page for next operation
             self.grok.go_back_to_imagine()
             time.sleep(1)
             
-            return "success"
+            return "success" if downloaded_any else None
             
         except Exception as e:
             self.logger.error(f"Lỗi tạo video: {e}")
+            # Always go back to Imagine page even on error
+            try:
+                self.grok.go_back_to_imagine()
+            except:
+                pass
             return None
     
     def _cleanup_temp_files(self, files: list):

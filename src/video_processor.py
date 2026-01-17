@@ -12,28 +12,106 @@ from .logger import get_logger
 class VideoProcessor:
     """Process videos using FFmpeg."""
     
+    # FFmpeg download URLs
+    FFMPEG_URLS = {
+        "Windows": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
+        "Darwin": "https://evermeet.cx/ffmpeg/getrelease/zip",
+    }
+    FFPROBE_MAC_URL = "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip"
+    
     def __init__(self):
         """Initialize video processor."""
         self.logger = get_logger()
-        self._check_ffmpeg()
+        self.ffmpeg_dir = Path(__file__).parent.parent / "ffmpeg" / "bin"
+        self._setup_ffmpeg()
     
-    def _check_ffmpeg(self) -> bool:
-        """Check if FFmpeg is available."""
+    def _setup_ffmpeg(self):
+        """Setup FFmpeg - check local or download."""
+        import platform
+        system = platform.system()
+        
+        ext = ".exe" if system == "Windows" else ""
+        self.ffmpeg_path = self.ffmpeg_dir / f"ffmpeg{ext}"
+        self.ffprobe_path = self.ffmpeg_dir / f"ffprobe{ext}"
+        
+        if self.ffmpeg_path.exists():
+            self.logger.info(f"Đã tìm thấy FFmpeg: {self.ffmpeg_path}")
+            return
+        
+        # Download FFmpeg
+        self.logger.info("FFmpeg chưa có, đang tải về...")
+        self.ffmpeg_dir.mkdir(parents=True, exist_ok=True)
+        
+        if system == "Windows":
+            self._download_windows()
+        elif system == "Darwin":
+            self._download_mac()
+        else:
+            self.logger.error(f"Không hỗ trợ tự động tải cho {system}")
+    
+    def _download_windows(self):
+        """Download FFmpeg for Windows."""
+        import requests, zipfile, io, shutil
+        
         try:
-            result = subprocess.run(
-                ['ffmpeg', '-version'],
-                capture_output=True,
-                text=True
-            )
-            if result.returncode == 0:
-                self.logger.info("Đã tìm thấy FFmpeg")
-                return True
-            else:
-                self.logger.warning("Không tìm thấy FFmpeg trong PATH")
-                return False
-        except FileNotFoundError:
-            self.logger.warning("FFmpeg chưa cài hoặc không có trong PATH")
-            return False
+            self.logger.info("Đang tải FFmpeg cho Windows (~100MB)...")
+            response = requests.get(self.FFMPEG_URLS["Windows"], stream=True, timeout=300)
+            response.raise_for_status()
+            
+            with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+                for name in zf.namelist():
+                    if name.endswith("ffmpeg.exe"):
+                        with zf.open(name) as src, open(self.ffmpeg_path, 'wb') as dst:
+                            shutil.copyfileobj(src, dst)
+                    elif name.endswith("ffprobe.exe"):
+                        with zf.open(name) as src, open(self.ffprobe_path, 'wb') as dst:
+                            shutil.copyfileobj(src, dst)
+            
+            self.logger.success(f"Đã cài FFmpeg: {self.ffmpeg_path}")
+        except Exception as e:
+            self.logger.error(f"Lỗi tải FFmpeg: {e}")
+    
+    def _download_mac(self):
+        """Download FFmpeg for Mac."""
+        import requests, zipfile, io, stat
+        
+        try:
+            # Download ffmpeg
+            self.logger.info("Đang tải FFmpeg cho Mac...")
+            response = requests.get(self.FFMPEG_URLS["Darwin"], timeout=120)
+            response.raise_for_status()
+            
+            with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+                for name in zf.namelist():
+                    if "ffmpeg" in name.lower() and not name.endswith('/'):
+                        with zf.open(name) as src, open(self.ffmpeg_path, 'wb') as dst:
+                            dst.write(src.read())
+                        self.ffmpeg_path.chmod(self.ffmpeg_path.stat().st_mode | stat.S_IEXEC)
+            
+            # Download ffprobe
+            self.logger.info("Đang tải FFprobe cho Mac...")
+            response = requests.get(self.FFPROBE_MAC_URL, timeout=120)
+            response.raise_for_status()
+            
+            with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+                for name in zf.namelist():
+                    if "ffprobe" in name.lower() and not name.endswith('/'):
+                        with zf.open(name) as src, open(self.ffprobe_path, 'wb') as dst:
+                            dst.write(src.read())
+                        self.ffprobe_path.chmod(self.ffprobe_path.stat().st_mode | stat.S_IEXEC)
+            
+            self.logger.success(f"Đã cài FFmpeg: {self.ffmpeg_path}")
+        except Exception as e:
+            self.logger.error(f"Lỗi tải FFmpeg: {e}")
+    
+    def _get_ffmpeg_cmd(self) -> str:
+        return str(self.ffmpeg_path)
+    
+    def _get_ffprobe_cmd(self) -> str:
+        return str(self.ffprobe_path)
+    
+    def is_available(self) -> bool:
+        return self.ffmpeg_path.exists()
     
     def extract_last_frame(self, video_path: str, output_path: str) -> bool:
         """
@@ -68,7 +146,7 @@ class VideoProcessor:
             last_second = max(0, duration - 0.1)
             
             cmd = [
-                'ffmpeg', '-y',
+                self._get_ffmpeg_cmd(), '-y',
                 '-ss', str(last_second),
                 '-i', str(video_path),
                 '-frames:v', '1',
@@ -95,7 +173,7 @@ class VideoProcessor:
         """Get video duration in seconds using ffprobe."""
         try:
             cmd = [
-                'ffprobe',
+                self._get_ffprobe_cmd(),
                 '-v', 'error',
                 '-show_entries', 'format=duration',
                 '-of', 'default=noprint_wrappers=1:nokey=1',
@@ -148,7 +226,7 @@ class VideoProcessor:
                 f.write(f"file '{video2_path.absolute()}'\n")
             
             cmd = [
-                'ffmpeg', '-y',
+                self._get_ffmpeg_cmd(), '-y',
                 '-f', 'concat',
                 '-safe', '0',
                 '-i', str(concat_file),
