@@ -27,7 +27,7 @@ jobs:
 
             - name: Build executable
               run: |
-                  pyinstaller --onefile --windowed --name "Imagine-IV" --add-data "config.json.template;." main.py
+                  pyinstaller --onefile --windowed --name "Imagine-IV" --icon icon.ico --add-data "config.json.template;." main.py
 
             - name: Upload artifact
               uses: actions/upload-artifact@v4
@@ -56,7 +56,7 @@ jobs:
 
             - name: Build app bundle
               run: |
-                  pyinstaller --onedir --windowed --name "Imagine-IV" --add-data "config.json.template:." main.py
+                  pyinstaller --onedir --windowed --name "Imagine-IV" --icon icon.icns --add-data "config.json.template:." main.py
 
             - name: Zip release
               run: |
@@ -89,7 +89,7 @@ jobs:
 
             - name: Build app bundle
               run: |
-                  pyinstaller --onedir --windowed --name "Imagine-IV" --add-data "config.json.template:." main.py
+                  pyinstaller --onedir --windowed --name "Imagine-IV" --icon icon.icns --add-data "config.json.template:." main.py
 
             - name: Zip release
               run: |
