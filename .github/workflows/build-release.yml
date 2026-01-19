@@ -108,6 +108,37 @@ jobs:
             contents: write
 
         steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Generate release notes
+              id: release_notes
+              run: |
+                  echo "## What's Changed" > release_notes.md
+                  echo "" >> release_notes.md
+
+                  # Get previous tag
+                  PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+
+                  if [ -n "$PREV_TAG" ]; then
+                    # List commits since previous tag
+                    git log --pretty=format:"- %s (%h)" $PREV_TAG..HEAD >> release_notes.md
+                  else
+                    # First release - list recent commits
+                    git log --pretty=format:"- %s (%h)" -10 >> release_notes.md
+                  fi
+
+                  echo "" >> release_notes.md
+                  echo "" >> release_notes.md
+                  echo "## Downloads" >> release_notes.md
+                  echo "- **Windows**: \`Imagine-IV.exe\` - Single executable" >> release_notes.md
+                  echo "- **macOS Intel**: \`Imagine-IV-macOS-Intel.zip\` - For Intel Macs" >> release_notes.md
+                  echo "- **macOS Silicon**: \`Imagine-IV-macOS-Silicon.zip\` - For M1/M2/M3/M4 Macs" >> release_notes.md
+                  echo "" >> release_notes.md
+                  echo "> **Note for macOS users**: Right-click the app and select 'Open' to bypass Gatekeeper, or run \`xattr -cr Imagine-IV.app\` in Terminal." >> release_notes.md
+
             - name: Download Windows artifact
               uses: actions/download-artifact@v4
               with:
@@ -129,10 +160,10 @@ jobs:
             - name: Create Release
               uses: softprops/action-gh-release@v2
               with:
+                  body_path: release_notes.md
                   files: |
                       dist/Imagine-IV.exe
                       dist/Imagine-IV-macOS-Intel.zip
                       dist/Imagine-IV-macOS-Silicon.zip
-                  generate_release_notes: true
                   draft: false
                   prerelease: false
