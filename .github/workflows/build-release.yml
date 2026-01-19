@@ -16,7 +16,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v5
               with:
-                  python-version: "3.12"
+                  python-version: "3.11" # Use 3.11 for better compatibility
                   cache: "pip"
 
             - name: Install dependencies
@@ -27,19 +27,17 @@ jobs:
 
             - name: Build executable
               run: |
-                  pyinstaller --onefile --windowed --name "Imagine-IV" --icon=icon.ico --add-data "config.json.template;." main.py
-              continue-on-error: true
+                  pyinstaller --onedir --windowed --name "Imagine-IV" --add-data "config.json.template;." --collect-all undetected_chromedriver --collect-all selenium --hidden-import=PIL._tkinter_finder main.py
 
-            - name: Build executable (no icon fallback)
-              if: failure()
+            - name: Zip release
               run: |
-                  pyinstaller --onefile --windowed --name "Imagine-IV" --add-data "config.json.template;." main.py
+                  Compress-Archive -Path dist/Imagine-IV/* -DestinationPath dist/Imagine-IV-Windows.zip
 
             - name: Upload artifact
               uses: actions/upload-artifact@v4
               with:
                   name: Imagine-IV-Windows
-                  path: dist/Imagine-IV.exe
+                  path: dist/Imagine-IV-Windows.zip
 
     release:
         needs: build-windows
@@ -58,7 +56,7 @@ jobs:
               uses: softprops/action-gh-release@v2
               with:
                   files: |
-                      dist/Imagine-IV.exe
+                      dist/Imagine-IV-Windows.zip
                   generate_release_notes: true
                   draft: false
                   prerelease: false
