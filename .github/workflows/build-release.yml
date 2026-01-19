@@ -3,7 +3,7 @@ name: Build and Release
 on:
     push:
         tags:
-            - "v*" # Trigger on version tags like v1.5.1
+            - "v*"
 
 jobs:
     build-windows:
@@ -27,16 +27,86 @@ jobs:
 
             - name: Build executable
               run: |
-                  pyinstaller --onefile --windowed --name "Imagine-IV" --add-data "config.json.template;." --hidden-import=PIL._tkinter_finder --hidden-import=ttkbootstrap --hidden-import=selenium.webdriver.chrome.service --hidden-import=selenium.webdriver.chrome.options --hidden-import=selenium.webdriver.common.by --hidden-import=selenium.webdriver.support.ui --hidden-import=selenium.webdriver.support.expected_conditions main.py
+                  pyinstaller --onedir --windowed --name "Imagine-IV" --add-data "config.json.template;." main.py
+
+            - name: Zip release
+              run: |
+                  Compress-Archive -Path dist/Imagine-IV/* -DestinationPath dist/Imagine-IV-Windows.zip
 
             - name: Upload artifact
               uses: actions/upload-artifact@v4
               with:
                   name: Imagine-IV-Windows
-                  path: dist/Imagine-IV.exe
+                  path: dist/Imagine-IV-Windows.zip
+
+    build-macos-intel:
+        runs-on: macos-13
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+                  cache: "pip"
+
+            - name: Install dependencies
+              run: |
+                  python -m pip install --upgrade pip
+                  pip install -r requirements.txt
+                  pip install pyinstaller
+
+            - name: Build app bundle
+              run: |
+                  pyinstaller --onedir --windowed --name "Imagine-IV" --add-data "config.json.template:." main.py
+
+            - name: Zip release
+              run: |
+                  cd dist && zip -r Imagine-IV-macOS-Intel.zip Imagine-IV.app
+
+            - name: Upload artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: Imagine-IV-macOS-Intel
+                  path: dist/Imagine-IV-macOS-Intel.zip
+
+    build-macos-silicon:
+        runs-on: macos-14
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+                  cache: "pip"
+
+            - name: Install dependencies
+              run: |
+                  python -m pip install --upgrade pip
+                  pip install -r requirements.txt
+                  pip install pyinstaller
+
+            - name: Build app bundle
+              run: |
+                  pyinstaller --onedir --windowed --name "Imagine-IV" --add-data "config.json.template:." main.py
+
+            - name: Zip release
+              run: |
+                  cd dist && zip -r Imagine-IV-macOS-Silicon.zip Imagine-IV.app
+
+            - name: Upload artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: Imagine-IV-macOS-Silicon
+                  path: dist/Imagine-IV-macOS-Silicon.zip
 
     release:
-        needs: build-windows
+        needs: [build-windows, build-macos-intel, build-macos-silicon]
         runs-on: ubuntu-latest
         permissions:
             contents: write
@@ -48,11 +118,25 @@ jobs:
                   name: Imagine-IV-Windows
                   path: dist/
 
+            - name: Download macOS Intel artifact
+              uses: actions/download-artifact@v4
+              with:
+                  name: Imagine-IV-macOS-Intel
+                  path: dist/
+
+            - name: Download macOS Silicon artifact
+              uses: actions/download-artifact@v4
+              with:
+                  name: Imagine-IV-macOS-Silicon
+                  path: dist/
+
             - name: Create Release
               uses: softprops/action-gh-release@v2
               with:
                   files: |
-                      dist/Imagine-IV.exe
+                      dist/Imagine-IV-Windows.zip
+                      dist/Imagine-IV-macOS-Intel.zip
+                      dist/Imagine-IV-macOS-Silicon.zip
                   generate_release_notes: true
                   draft: false
                   prerelease: false

@@ -46,7 +46,6 @@ class MainWindow:
 
         # Initialize logger after log viewer is created
         self.logger = init_logger(
-            log_dir="./logs/",
             gui_callback=self.log_viewer.get_log_callback(),
             verbose=self.config.get("verbose_logging", True)
         )
@@ -158,7 +157,7 @@ class MainWindow:
 
         version_label = ttk.Label(
             status_bar,
-            text="v1.5.3",
+            text="v1.5.4",
             foreground="gray"
         )
         version_label.pack(side=RIGHT)
