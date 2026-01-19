@@ -27,17 +27,13 @@ jobs:
 
             - name: Build executable
               run: |
-                  pyinstaller --onedir --windowed --name "Imagine-IV" --add-data "config.json.template;." main.py
-
-            - name: Zip release
-              run: |
-                  Compress-Archive -Path dist/Imagine-IV/* -DestinationPath dist/Imagine-IV-Windows.zip
+                  pyinstaller --onefile --windowed --name "Imagine-IV" --add-data "config.json.template;." main.py
 
             - name: Upload artifact
               uses: actions/upload-artifact@v4
               with:
                   name: Imagine-IV-Windows
-                  path: dist/Imagine-IV-Windows.zip
+                  path: dist/Imagine-IV.exe
 
     build-macos-intel:
         runs-on: macos-15-intel
@@ -134,7 +130,7 @@ jobs:
               uses: softprops/action-gh-release@v2
               with:
                   files: |
-                      dist/Imagine-IV-Windows.zip
+                      dist/Imagine-IV.exe
                       dist/Imagine-IV-macOS-Intel.zip
                       dist/Imagine-IV-macOS-Silicon.zip
                   generate_release_notes: true
