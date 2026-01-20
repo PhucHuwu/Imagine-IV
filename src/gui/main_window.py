@@ -157,7 +157,7 @@ class MainWindow:
 
         version_label = ttk.Label(
             status_bar,
-            text="v1.6.0",
+            text="v1.6.1",
             foreground="gray"
         )
         version_label.pack(side=RIGHT)
