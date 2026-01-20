@@ -7,6 +7,7 @@ import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 
 from ..config import get_config
+from .scrollable_frame import ScrollableFrame
 
 
 class ConfigTab(ttk.Frame):
@@ -29,21 +30,12 @@ class ConfigTab(ttk.Frame):
     
     def _setup_ui(self):
         """Setup the UI components."""
-        # Main container with scrollbar
-        canvas = tk.Canvas(self, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(self, orient=VERTICAL, command=canvas.yview)
+        # Create scrollable container
+        self._scrollable = ScrollableFrame(self)
+        self._scrollable.pack(fill=BOTH, expand=True)
         
-        self._content_frame = ttk.Frame(canvas)
-        
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        scrollbar.pack(side=RIGHT, fill=Y)
-        canvas.pack(side=LEFT, fill=BOTH, expand=True)
-        
-        canvas.create_window((0, 0), window=self._content_frame, anchor=NW)
-        
-        self._content_frame.bind("<Configure>", 
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        # Use inner frame for all content
+        self._content_frame = self._scrollable.inner
         
         # Thread Settings Section
         self._create_section("Cấu Hình Luồng")
