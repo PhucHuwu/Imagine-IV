@@ -1,6 +1,6 @@
 """
 Video Generator - Orchestrates video generation workflow
-Creates 12s videos by combining two 6s video clips
+Creates 6s or 12s videos (12s by combining two 6s video clips)
 """
 import time
 import threading
@@ -17,7 +17,7 @@ from .logger import get_logger
 
 
 class VideoGenerator:
-    """Generate 12s videos using Grok Imagine."""
+    """Generate 6s or 12s videos using Grok Imagine."""
     
     VIDEO2_PREFIX = "Continue the motion smoothly from this exact frame. Maintain the same style, lighting, and camera angle. "
     
@@ -46,7 +46,14 @@ class VideoGenerator:
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
     
-    def start(self, mode: str = "generate", folder: str = None, batch_count: int = 10):
+    def start(
+        self,
+        mode: str = "generate",
+        folder: str = None,
+        batch_count: int = 10,
+        auto_prompt: bool = True,
+        duration: int = 6
+    ):
         """
         Start video generation.
         
@@ -54,6 +61,8 @@ class VideoGenerator:
             mode: "generate" (create new images) or "folder" (use existing images)
             folder: Folder path for mode="folder"
             batch_count: Number of videos to create
+            auto_prompt: If True, use OpenRouter for prompt generation
+            duration: Video duration in seconds (6 or 12)
         """
         if self._running:
             self.logger.warning("Video generator đang chạy")
@@ -64,7 +73,7 @@ class VideoGenerator:
         
         self._thread = threading.Thread(
             target=self._generation_loop,
-            args=(mode, folder, batch_count),
+            args=(mode, folder, batch_count, auto_prompt, duration),
             daemon=True
         )
         self._thread.start()
@@ -86,10 +95,18 @@ class VideoGenerator:
             except Exception as e:
                 self.logger.error(f"Lỗi callback progress: {e}")
     
-    def _generation_loop(self, mode: str, folder: str, batch_count: int):
+    def _generation_loop(
+        self,
+        mode: str,
+        folder: str,
+        batch_count: int,
+        auto_prompt: bool = True,
+        duration: int = 6
+    ):
         """Main generation loop."""
         try:
-            self.logger.info(f"Bắt đầu tạo {batch_count} video (mode: {mode})")
+            duration_str = f"{duration}s"
+            self.logger.info(f"Bắt đầu tạo {batch_count} video {duration_str} (mode: {mode})")
             self._report_progress(0, batch_count, "Đang khởi tạo...")
             
             # Setup directories
@@ -106,6 +123,16 @@ class VideoGenerator:
                     image_list = list(folder_path.glob("*.jpg")) + list(folder_path.glob("*.jpeg")) + list(folder_path.glob("*.png"))
                     self.logger.info(f"Tìm thấy {len(image_list)} ảnh trong thư mục")
             
+            # Get manual prompts if not using auto-prompt
+            manual_prompts = []
+            if not auto_prompt:
+                manual_prompts = self.config.get("video_manual_prompts", [])
+                if not manual_prompts:
+                    self.logger.error("Không có prompt thủ công nào được cấu hình")
+                    return
+                batch_count = len(manual_prompts)
+                self.logger.info(f"Sử dụng {batch_count} prompt thủ công")
+            
             completed = 0
             
             for i in range(batch_count):
@@ -113,21 +140,38 @@ class VideoGenerator:
                     self.logger.info("Đã dừng theo yêu cầu")
                     break
                 
-                self.logger.info(f"===== Video {i + 1}/{batch_count} =====")
+                self.logger.info(f"===== Video {i + 1}/{batch_count} ({duration_str}) =====")
                 self._report_progress(i, batch_count, f"Đang tạo video {i + 1}/{batch_count}")
                 
                 try:
-                    # Generate prompts
-                    self._report_progress(i, batch_count, "Đang tạo prompt AI...")
-                    prompts = self.prompt_gen.generate_prompts()
-                    
-                    if not prompts:
-                        self.logger.error("Không thể tạo prompt, bỏ qua video này")
-                        continue
-                    
-                    image_prompt = prompts.get("image_prompt", "")
-                    video1_prompt = prompts.get("video1_prompt", "")
-                    video2_prompt = prompts.get("video2_prompt", "")
+                    # Get prompts based on mode
+                    if auto_prompt:
+                        # Generate prompts using OpenRouter
+                        self._report_progress(i, batch_count, "Đang tạo prompt AI...")
+                        prompts = self.prompt_gen.generate_prompts()
+                        
+                        if not prompts:
+                            self.logger.error("Không thể tạo prompt, bỏ qua video này")
+                            continue
+                        
+                        image_prompt = prompts.get("image_prompt", "")
+                        video1_prompt = prompts.get("video1_prompt", "")
+                        video2_prompt = prompts.get("video2_prompt", "")
+                    else:
+                        # Use manual prompts
+                        batch_prompts = manual_prompts[i]
+                        self.logger.info(f"Sử dụng prompt thủ công {i + 1}/{batch_count}")
+                        
+                        # Manual prompts can be dict (video mode) or string (image mode)
+                        if isinstance(batch_prompts, dict):
+                            image_prompt = ""  # Not used in folder mode
+                            video1_prompt = batch_prompts.get("video1", "")
+                            video2_prompt = batch_prompts.get("video2", "") if duration == 12 else ""
+                        else:
+                            # String prompt - use for both image and video
+                            image_prompt = str(batch_prompts)
+                            video1_prompt = str(batch_prompts)
+                            video2_prompt = ""
                     
                     # Determine source image
                     if mode == "folder" and image_list:
@@ -140,6 +184,10 @@ class VideoGenerator:
                         self.logger.info(f"Sử dụng ảnh: {Path(source_image).name}")
                     else:
                         # Generate new image
+                        if not image_prompt:
+                            self.logger.error("Không có prompt ảnh, bỏ qua")
+                            continue
+                        
                         self._report_progress(i, batch_count, "Đang tạo ảnh nguồn...")
                         source_image = self._generate_source_image(image_prompt, temp_dir)
                         
@@ -148,63 +196,29 @@ class VideoGenerator:
                             self.grok.go_back_to_imagine()
                             continue
                     
-                    # Create Video 1
-                    self._report_progress(i, batch_count, "Đang tạo video 1/2...")
-                    video1_path = temp_dir / f"video1_{i}.mp4"
-                    
-                    result1 = self._create_video(source_image, video1_prompt, str(video1_path))
-                    if result1 == "moderated":
-                        self.logger.warning("Video 1 bị nhạy cảm (moderated), bỏ qua video này")
-                        self.grok.go_back_to_imagine()
-                        continue
-                    if not result1:
-                        self.logger.error("Không thể tạo video 1, bỏ qua")
-                        self.grok.go_back_to_imagine()
-                        continue
-                    
-                    if self._stop_event.is_set():
-                        break
-                    
-                    # Extract last frame from Video 1
-                    self._report_progress(i, batch_count, "Đang trích xuất frame cuối...")
-                    last_frame_path = temp_dir / f"last_frame_{i}.jpg"
-                    
-                    if not self.video_processor.extract_last_frame(str(video1_path), str(last_frame_path)):
-                        self.logger.error("Không thể trích xuất frame cuối, bỏ qua")
-                        self.grok.go_back_to_imagine()
-                        continue
-                    
-                    # Create Video 2 from last frame
-                    self._report_progress(i, batch_count, "Đang tạo video 2/2...")
-                    video2_path = temp_dir / f"video2_{i}.mp4"
-                    video2_full_prompt = self.VIDEO2_PREFIX + video2_prompt
-                    
-                    result2 = self._create_video(str(last_frame_path), video2_full_prompt, str(video2_path))
-                    if result2 == "moderated":
-                        self.logger.warning("Video 2 bị nhạy cảm (moderated), bỏ qua video này")
-                        self.grok.go_back_to_imagine()
-                        continue
-                    if not result2:
-                        self.logger.error("Không thể tạo video 2, bỏ qua")
-                        self.grok.go_back_to_imagine()
-                        continue
-                    
-                    if self._stop_event.is_set():
-                        break
-                    
-                    # Concatenate videos
-                    self._report_progress(i, batch_count, "Đang ghép video...")
-                    timestamp = datetime.now().strftime("%d-%m_%H-%M-%S")
-                    final_video = videos_dir / f"{timestamp}_{i + 1:03d}.mp4"
-                    
-                    if self.video_processor.concat_videos(str(video1_path), str(video2_path), str(final_video)):
-                        completed += 1
-                        self.logger.success(f"Đã tạo video hoàn chỉnh: {final_video.name}")
+                    # Generate video based on duration
+                    if duration == 6:
+                        # 6s mode: Create single video
+                        success = self._create_6s_video(
+                            source_image,
+                            video1_prompt,
+                            videos_dir,
+                            i
+                        )
+                        if success:
+                            completed += 1
                     else:
-                        self.logger.error("Không thể ghép video")
-                    
-                    # Cleanup temp files for this iteration
-                    self._cleanup_temp_files([video1_path, video2_path, last_frame_path])
+                        # 12s mode: Create two videos and concatenate
+                        success = self._create_12s_video(
+                            source_image,
+                            video1_prompt,
+                            video2_prompt,
+                            videos_dir,
+                            temp_dir,
+                            i
+                        )
+                        if success:
+                            completed += 1
                     
                     # Small delay between videos
                     time.sleep(2)
@@ -221,6 +235,135 @@ class VideoGenerator:
             self._report_progress(0, batch_count, f"Lỗi: {e}")
         finally:
             self._running = False
+    
+    def _create_6s_video(
+        self,
+        source_image: str,
+        video_prompt: str,
+        videos_dir: Path,
+        index: int
+    ) -> bool:
+        """
+        Create a single 6s video.
+        
+        Args:
+            source_image: Path to source image
+            video_prompt: Prompt for video
+            videos_dir: Directory to save final video
+            index: Video index
+            
+        Returns:
+            True if successful
+        """
+        try:
+            timestamp = datetime.now().strftime("%d-%m_%H-%M-%S")
+            final_video = videos_dir / f"{timestamp}_{index + 1:03d}_6s.mp4"
+            
+            result = self._create_video(source_image, video_prompt, str(final_video))
+            
+            if result == "moderated":
+                self.logger.warning("Video bị nhạy cảm (moderated), bỏ qua")
+                self.grok.go_back_to_imagine()
+                return False
+            
+            if not result:
+                self.logger.error("Không thể tạo video")
+                self.grok.go_back_to_imagine()
+                return False
+            
+            self.logger.success(f"Đã tạo video 6s: {final_video.name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Lỗi tạo video 6s: {e}")
+            return False
+    
+    def _create_12s_video(
+        self,
+        source_image: str,
+        video1_prompt: str,
+        video2_prompt: str,
+        videos_dir: Path,
+        temp_dir: Path,
+        index: int
+    ) -> bool:
+        """
+        Create a 12s video by concatenating two 6s videos.
+        
+        Args:
+            source_image: Path to source image
+            video1_prompt: Prompt for first video
+            video2_prompt: Prompt for second video
+            videos_dir: Directory to save final video
+            temp_dir: Directory for temporary files
+            index: Video index
+            
+        Returns:
+            True if successful
+        """
+        try:
+            # Create Video 1
+            self._report_progress(index, -1, "Đang tạo video 1/2...")
+            video1_path = temp_dir / f"video1_{index}.mp4"
+            
+            result1 = self._create_video(source_image, video1_prompt, str(video1_path))
+            if result1 == "moderated":
+                self.logger.warning("Video 1 bị nhạy cảm (moderated), bỏ qua video này")
+                self.grok.go_back_to_imagine()
+                return False
+            if not result1:
+                self.logger.error("Không thể tạo video 1, bỏ qua")
+                self.grok.go_back_to_imagine()
+                return False
+            
+            if self._stop_event.is_set():
+                return False
+            
+            # Extract last frame from Video 1
+            self._report_progress(index, -1, "Đang trích xuất frame cuối...")
+            last_frame_path = temp_dir / f"last_frame_{index}.jpg"
+            
+            if not self.video_processor.extract_last_frame(str(video1_path), str(last_frame_path)):
+                self.logger.error("Không thể trích xuất frame cuối, bỏ qua")
+                self.grok.go_back_to_imagine()
+                return False
+            
+            # Create Video 2 from last frame
+            self._report_progress(index, -1, "Đang tạo video 2/2...")
+            video2_path = temp_dir / f"video2_{index}.mp4"
+            video2_full_prompt = self.VIDEO2_PREFIX + video2_prompt
+            
+            result2 = self._create_video(str(last_frame_path), video2_full_prompt, str(video2_path))
+            if result2 == "moderated":
+                self.logger.warning("Video 2 bị nhạy cảm (moderated), bỏ qua video này")
+                self.grok.go_back_to_imagine()
+                return False
+            if not result2:
+                self.logger.error("Không thể tạo video 2, bỏ qua")
+                self.grok.go_back_to_imagine()
+                return False
+            
+            if self._stop_event.is_set():
+                return False
+            
+            # Concatenate videos
+            self._report_progress(index, -1, "Đang ghép video...")
+            timestamp = datetime.now().strftime("%d-%m_%H-%M-%S")
+            final_video = videos_dir / f"{timestamp}_{index + 1:03d}_12s.mp4"
+            
+            if self.video_processor.concat_videos(str(video1_path), str(video2_path), str(final_video)):
+                self.logger.success(f"Đã tạo video 12s: {final_video.name}")
+                
+                # Cleanup temp files for this iteration
+                self._cleanup_temp_files([video1_path, video2_path, last_frame_path])
+                return True
+            else:
+                self.logger.error("Không thể ghép video")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"Lỗi tạo video 12s: {e}")
+            return False
     
     def _generate_source_image(self, image_prompt: str, temp_dir: Path) -> Optional[str]:
         """

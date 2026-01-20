@@ -157,7 +157,7 @@ class MainWindow:
 
         version_label = ttk.Label(
             status_bar,
-            text="v1.5.8",
+            text="v1.6.0",
             foreground="gray"
         )
         version_label.pack(side=RIGHT)
@@ -242,8 +242,9 @@ class MainWindow:
         )
 
         batch_count = settings.get("batch_count", 10)
+        auto_prompt = settings.get("auto_prompt", True)
 
-        self._image_generator.start(batch_count=batch_count)
+        self._image_generator.start(batch_count=batch_count, auto_prompt=auto_prompt)
 
     def _start_video_generation(self, settings: dict):
         """Start video generation workflow."""
@@ -264,8 +265,16 @@ class MainWindow:
         mode = settings.get("mode", "generate")
         folder = settings.get("folder", "")
         batch_count = settings.get("batch_size", 10)
+        auto_prompt = settings.get("auto_prompt", True)
+        duration = settings.get("duration", 6)
 
-        self._video_generator.start(mode=mode, folder=folder, batch_count=batch_count)
+        self._video_generator.start(
+            mode=mode,
+            folder=folder,
+            batch_count=batch_count,
+            auto_prompt=auto_prompt,
+            duration=duration
+        )
 
     def _on_video_progress(self, current: int, total: int, status: str):
         """Handle progress updates from video generator."""

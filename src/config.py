@@ -22,7 +22,14 @@ class Config:
         "openrouter_model": "",
         "timeout_seconds": 60,
         "verbose_logging": True,
-        "logged_in": False
+        "logged_in": False,
+        # Image mode: auto-prompt toggle
+        "auto_prompt_enabled": True,
+        "manual_prompts": [],
+        # Video mode: auto-prompt toggle + duration
+        "video_auto_prompt_enabled": True,
+        "video_duration": 6,
+        "video_manual_prompts": []
     }
 
     def __init__(self, config_path: str = None):

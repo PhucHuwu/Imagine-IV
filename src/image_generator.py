@@ -42,12 +42,13 @@ class ImageGenerator:
             except Exception:
                 pass
     
-    def start(self, batch_count: int) -> bool:
+    def start(self, batch_count: int, auto_prompt: bool = True) -> bool:
         """
         Start image generation.
         
         Args:
             batch_count: Number of batches to generate
+            auto_prompt: If True, use OpenRouter for prompt generation
             
         Returns:
             True if started successfully
@@ -62,7 +63,7 @@ class ImageGenerator:
         # Run in separate thread
         thread = threading.Thread(
             target=self._generation_loop,
-            args=(batch_count,),
+            args=(batch_count, auto_prompt),
             daemon=True
         )
         thread.start()
@@ -78,7 +79,7 @@ class ImageGenerator:
         """Check if generation is running."""
         return self._running
     
-    def _generation_loop(self, batch_count: int):
+    def _generation_loop(self, batch_count: int, auto_prompt: bool = True):
         """Main generation loop."""
         try:
             # Get output directory
@@ -89,6 +90,16 @@ class ImageGenerator:
             
             # Get delay between batches
             delay = self.config.get("delay_between_prompts", 5)
+            
+            # Get manual prompts if not using auto-prompt
+            manual_prompts = []
+            if not auto_prompt:
+                manual_prompts = self.config.get("manual_prompts", [])
+                if not manual_prompts:
+                    self.logger.error("Không có prompt thủ công nào được cấu hình")
+                    return
+                batch_count = len(manual_prompts)
+                self.logger.info(f"Sử dụng {batch_count} prompt thủ công")
             
             total_downloaded = 0
             
@@ -105,15 +116,22 @@ class ImageGenerator:
                 
                 self._update_progress(batch_idx, batch_count, f"Batch {batch_idx + 1}/{batch_count}")
                 
-                # Generate prompt
-                self.logger.info(f"Đang tạo prompt cho batch {batch_idx + 1}...")
-                prompts = self.prompt_gen.generate_prompts()
+                # Get prompt based on mode
+                if auto_prompt:
+                    # Generate prompt using OpenRouter
+                    self.logger.info(f"Đang tạo prompt tự động cho batch {batch_idx + 1}...")
+                    prompts = self.prompt_gen.generate_prompts()
+                    
+                    if not prompts:
+                        self.logger.error("Không thể tạo prompt, bỏ qua batch này")
+                        continue
+                    
+                    image_prompt = prompts.get("image_prompt", "")
+                else:
+                    # Use manual prompt
+                    image_prompt = manual_prompts[batch_idx]
+                    self.logger.info(f"Sử dụng prompt thủ công {batch_idx + 1}/{batch_count}")
                 
-                if not prompts:
-                    self.logger.error("Không thể tạo prompt, bỏ qua batch này")
-                    continue
-                
-                image_prompt = prompts.get("image_prompt", "")
                 if not image_prompt:
                     self.logger.error("Prompt ảnh trống, bỏ qua")
                     continue
@@ -130,8 +148,6 @@ class ImageGenerator:
                 if not self.grok.submit_prompt():
                     self.logger.error("Không thể gửi prompt, bỏ qua batch này")
                     continue
-                
-                # Không kiểm tra rate limit ở đây nữa - để wait_for_images xử lý
                 
                 # Wait for images (sẽ tự tải ảnh và xử lý rate limit)
                 result = self.grok.wait_for_images(min_count=1)
@@ -154,8 +170,6 @@ class ImageGenerator:
                 elif not result:
                     self.logger.error("Không có ảnh nào được tạo, bỏ qua batch này")
                     continue
-                
-                # Ảnh đã được tải trong wait_for_images, không cần tải lại
                 
                 # Delay before next batch
                 if batch_idx < batch_count - 1 and not self._stop_requested:
