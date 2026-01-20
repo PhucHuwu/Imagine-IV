@@ -41,10 +41,6 @@ class ConfigTab(ttk.Frame):
         self._create_section("Cấu Hình Luồng")
         self._create_spinbox("thread_count", "Số luồng", 1, 20)
         
-        # Image Settings Section
-        self._create_section("Cấu Hình Ảnh")
-        self._create_spinbox("batch_size", "Số lần tạo (batch)", 1, 100)
-        
         # Timing Section
         self._create_section("Thời Gian")
         self._create_spinbox("delay_ms", "Độ trễ (ms)", 100, 10000, increment=100)
