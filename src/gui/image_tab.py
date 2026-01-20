@@ -8,6 +8,7 @@ from ttkbootstrap.constants import *
 from ..config import get_config
 from ..logger import get_logger
 from .prompt_card import PromptCardsContainer
+from .scrollable_frame import ScrollableFrame
 
 
 class ImageTab(ttk.Frame):
@@ -35,8 +36,15 @@ class ImageTab(ttk.Frame):
     
     def _setup_ui(self):
         """Setup the UI components."""
+        # Create scrollable container
+        self._scrollable = ScrollableFrame(self)
+        self._scrollable.pack(fill=BOTH, expand=True)
+        
+        # Use inner frame for all content
+        container = self._scrollable.inner
+        
         # Title
-        title_frame = ttk.Frame(self)
+        title_frame = ttk.Frame(container)
         title_frame.pack(fill=X, padx=20, pady=10)
         
         ttk.Label(
@@ -52,7 +60,7 @@ class ImageTab(ttk.Frame):
         ).pack(anchor=W)
         
         # Settings frame
-        settings_frame = ttk.Labelframe(self, text="Cài Đặt")
+        settings_frame = ttk.Labelframe(container, text="Cài Đặt")
         settings_frame.pack(fill=X, padx=20, pady=10)
         settings_inner = ttk.Frame(settings_frame, padding=15)
         settings_inner.pack(fill=BOTH, expand=True)
@@ -98,7 +106,7 @@ class ImageTab(ttk.Frame):
         ttk.Label(self._info_frame, text="Mỗi batch tải tối đa 12 ảnh", foreground="gray").pack(anchor=W)
         
         # Manual prompts section (shown when auto-prompt is disabled)
-        self._manual_prompts_frame = ttk.Labelframe(self, text="Prompt Thủ Công")
+        self._manual_prompts_frame = ttk.Labelframe(container, text="Prompt Thủ Công")
         self._manual_prompts_frame.pack(fill=BOTH, expand=True, padx=20, pady=10)
         
         self._prompts_container = PromptCardsContainer(
@@ -109,7 +117,7 @@ class ImageTab(ttk.Frame):
         self._prompts_container.pack(fill=BOTH, expand=True, padx=10, pady=10)
         
         # Status frame
-        status_outer = ttk.Labelframe(self, text="Trạng Thái")
+        status_outer = ttk.Labelframe(container, text="Trạng Thái")
         status_outer.pack(fill=X, padx=20, pady=10)
         status_frame = ttk.Frame(status_outer, padding=15)
         status_frame.pack(fill=BOTH, expand=True)
@@ -138,7 +146,7 @@ class ImageTab(ttk.Frame):
         self._count_label.pack(anchor=W)
         
         # Control buttons
-        btn_frame = ttk.Frame(self)
+        btn_frame = ttk.Frame(container)
         btn_frame.pack(fill=X, padx=20, pady=20)
         
         self._start_btn = ttk.Button(

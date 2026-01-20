@@ -9,6 +9,7 @@ from ttkbootstrap.constants import *
 from ..config import get_config
 from ..logger import get_logger
 from .prompt_card import PromptCardsContainer
+from .scrollable_frame import ScrollableFrame
 
 
 class VideoTab(ttk.Frame):
@@ -36,8 +37,15 @@ class VideoTab(ttk.Frame):
     
     def _setup_ui(self):
         """Setup the UI components."""
+        # Create scrollable container
+        self._scrollable = ScrollableFrame(self)
+        self._scrollable.pack(fill=BOTH, expand=True)
+        
+        # Use inner frame for all content
+        container = self._scrollable.inner
+        
         # Title
-        title_frame = ttk.Frame(self)
+        title_frame = ttk.Frame(container)
         title_frame.pack(fill=X, padx=20, pady=10)
         
         ttk.Label(
@@ -53,7 +61,7 @@ class VideoTab(ttk.Frame):
         ).pack(anchor=W)
         
         # Duration selection
-        duration_outer = ttk.Labelframe(self, text="Thời Lượng Video")
+        duration_outer = ttk.Labelframe(container, text="Thời Lượng Video")
         duration_outer.pack(fill=X, padx=20, pady=10)
         duration_frame = ttk.Frame(duration_outer, padding=15)
         duration_frame.pack(fill=BOTH, expand=True)
@@ -79,7 +87,7 @@ class VideoTab(ttk.Frame):
         ).pack(side=LEFT, padx=10)
         
         # Mode selection
-        mode_outer = ttk.Labelframe(self, text="Chế Độ")
+        mode_outer = ttk.Labelframe(container, text="Chế Độ")
         mode_outer.pack(fill=X, padx=20, pady=10)
         mode_frame = ttk.Frame(mode_outer, padding=15)
         mode_frame.pack(fill=BOTH, expand=True)
@@ -121,7 +129,7 @@ class VideoTab(ttk.Frame):
         browse_btn.pack(side=LEFT)
         
         # Settings
-        settings_outer = ttk.Labelframe(self, text="Cài Đặt")
+        settings_outer = ttk.Labelframe(container, text="Cài Đặt")
         settings_outer.pack(fill=X, padx=20, pady=10)
         settings_frame = ttk.Frame(settings_outer, padding=15)
         settings_frame.pack(fill=BOTH, expand=True)
@@ -157,7 +165,7 @@ class VideoTab(ttk.Frame):
         batch_spin.pack(side=LEFT, padx=5)
         
         # Manual prompts section (shown when auto-prompt is disabled)
-        self._manual_prompts_frame = ttk.Labelframe(self, text="Prompt Thủ Công")
+        self._manual_prompts_frame = ttk.Labelframe(container, text="Prompt Thủ Công")
         self._manual_prompts_frame.pack(fill=BOTH, expand=True, padx=20, pady=10)
         
         # Prompt container - show_video2 depends on duration
@@ -170,7 +178,7 @@ class VideoTab(ttk.Frame):
         self._prompts_container.pack(fill=BOTH, expand=True, padx=10, pady=10)
         
         # Status frame
-        status_outer = ttk.Labelframe(self, text="Trạng Thái")
+        status_outer = ttk.Labelframe(container, text="Trạng Thái")
         status_outer.pack(fill=X, padx=20, pady=10)
         status_frame = ttk.Frame(status_outer, padding=15)
         status_frame.pack(fill=BOTH, expand=True)
@@ -199,7 +207,7 @@ class VideoTab(ttk.Frame):
         self._count_label.pack(anchor=W)
         
         # Control buttons
-        btn_frame = ttk.Frame(self)
+        btn_frame = ttk.Frame(container)
         btn_frame.pack(fill=X, padx=20, pady=20)
         
         self._start_btn = ttk.Button(
